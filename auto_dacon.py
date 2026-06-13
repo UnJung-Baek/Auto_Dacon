@@ -26,7 +26,7 @@ def read_env_file(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        key = key.strip()
+        key = key.strip().lstrip("\ufeff")
         value = value.strip().strip('"').strip("'")
         if key:
             values[key] = value
