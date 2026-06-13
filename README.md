@@ -54,6 +54,11 @@ Full Agent_K/Auto_Dacon run:
   --max-cpu 4
 ```
 
+Default OpenRouter model roles:
+
+- `agent.llm`: `openrouter/qwen25_72b` -> `qwen/qwen-2.5-72b-instruct`
+- `agent.code_llm`: `openrouter/deepseek_v3` -> `deepseek/deepseek-chat`
+
 Auto_Dacon defaults to `AUTO_DACON_RAMP_PRESET=agentk`. In this mode, the setup
 stage lets the LLM create the Agent_K starting kit/baseline code, RAMP setup runs
 the starting kit, and the main RAMP hyperopt/blend search uses Agent_K-like

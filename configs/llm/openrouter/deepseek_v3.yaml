@@ -1,0 +1,12 @@
+defaults:
+  - openrouter
+
+model_id: deepseek/deepseek-chat
+context_length: 64000
+_target_: agent.models.openai_api.OpenAIAPILanguageBackend
+_partial_: true
+client:
+  _target_: openai.OpenAI
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${oc.env:OPENROUTER_API_KEY}
+max_tokens: 3000

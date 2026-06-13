@@ -14,6 +14,7 @@ DEFAULT_WORKSPACE = Path("workspace_dacon")
 DEFAULT_OUTPUT_ROOT = Path("outputs") / "dacon"
 DEFAULT_EXPERIENCE_ROOT = Path("experiences") / "dacon"
 DEFAULT_LLM = "openrouter/qwen25_72b"
+DEFAULT_CODE_LLM = "openrouter/deepseek_v3"
 DEFAULT_RAG_PATH = Path("C:/Auto_Dacon_RAG/kaggle_cases_db")
 
 
@@ -682,7 +683,7 @@ def parse_args() -> argparse.Namespace:
     add_common_run_args(run)
     run.add_argument("--openrouter-api-key", default=None)
     run.add_argument("--llm", default=DEFAULT_LLM)
-    run.add_argument("--code-llm", default=None)
+    run.add_argument("--code-llm", default=DEFAULT_CODE_LLM)
     run.add_argument("--total-time", type=int, default=7200)
     run.add_argument("--max-time-per-submission", type=int, default=1800)
     run.add_argument("--workspace-name", default=str(DEFAULT_WORKSPACE))
@@ -703,7 +704,7 @@ def parse_args() -> argparse.Namespace:
     project_run.add_argument("--competition-context", default=None)
     project_run.add_argument("--openrouter-api-key", default=None)
     project_run.add_argument("--llm", default=DEFAULT_LLM)
-    project_run.add_argument("--code-llm", default=None)
+    project_run.add_argument("--code-llm", default=DEFAULT_CODE_LLM)
     project_run.add_argument("--total-time", type=int, default=7200)
     project_run.add_argument("--max-time-per-submission", type=int, default=1800)
     project_run.add_argument("--workspace-name", default=str(DEFAULT_WORKSPACE))
