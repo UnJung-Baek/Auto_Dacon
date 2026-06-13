@@ -1,0 +1,263 @@
+norelease*/
+norelease*
+Dockerfile
+.gitlab-ci.yml
+create_runner.sh
+
+# Output files
+*.out
+
+# Other
+.auth
+src/server/models
+workspace
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.venv
+.venv-agentk/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+### VisualStudioCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+**/.vscode
+
+# JetBrains
+.idea/
+
+# Data & Models
+*.h5
+*.tar
+*.tar.gz
+
+# Lightning-Hydra-Template
+configs/local/default.yaml
+/data/
+/logs/
+.env
+
+# Aim logging
+.aim
+# Data preprocessing
+./third_party/data_preprocessing/*
+
+# Datascience agent tool
+./third_party/agent_k_python_path.txt
+third_party/data_science/data/finetuning/*.txt
+third_party/data_science/data/finetuning/*.csv
+third_party/data_science/data/finetuning/*.tar.gz
+third_party/data_science/data/finetuning/*.zip
+
+third_party/data_science/Feature_Engineering/fe_template.py
+third_party/data_science/Modelling/submit_template.py
+third_party/data_science/Modelling/train_template.py
+
+src/agent/prompts/templates/data_science/fe_template.jinja
+src/agent/prompts/templates/data_science/submit_template.jinja
+src/agent/prompts/templates/data_science/train_template.jinja
+src/agent/prompts/templates/data_science/DS-Task/DS-Modelling/train_template.jinja
+src/agent/prompts/templates/data_science/DS-Task/DS-Modelling/submit_template.jinja
+
+src/agent/prompts/templates/data_science/experiments
+third_party/data_science/data
+
+DSA_RAG/
+
+ramp-test
+AUX.TXT
+bo_output.txt
+california_housing_train.csv
+california_housing_test.csv
+Untitled.ipynb
+third_party/data_science/HEBO/hebo_submission.csv
+third_party/data_science/best_performance.txt
+faiss_index/index.pkl
+faiss_index/index.faiss
+.gitignore
+.kaggle/kaggle.json
+test.ipynb
+/playground/
+external/
+/third_party/data_preprocessing/kaggle_login_details.json
+
+Anaconda3-2024.02-1-Linux-x86_64.sh
+Competitions.csv
+Elo_Ratings.csv
+Elo_Test.xlsx
+elommrplot.png
+eloplot.png
+eloplot1.png
+eloplot2.png
+eloplot3.png
+eloplot4.png
+EloTesting.csv
+kaggle_competitions.ipynb
+output.png
+Performance_DSAgent.xlsx
+regression_tasks_list.csv
+results.json
+root_path_to_ds_data.txt
+root_path_to_raw_ds_data.txt
+submission.csv
+submission.json
+tab_regressions_runs.py
+task_report.csv
+Teams.csv
+third_party/data_preprocessing/=
+third_party/data_preprocessing/Submissions.csv
+user_elos.json
+user_ranks.json
+third_party/ramp-hyperopt
+third_party/ramp-workflow
+third_party/data_preprocessing/EloTesting.csv
+third_party/data_preprocessing/EloTesting2.csv
+third_party/data_preprocessing/paris_performance.xlsx
+
+notebooks/submissions
+notebooks/perso_*
+*__perso__*
+hs_err_pid*
+
+.df_cache
+*.pkl
+*.har
+agent.txt
+comments.json
+root_path_to_raw_ds_data_benchmark.txt
+text.txt
+third_party/agent_k_python_path.txt
+third_party/ds-agent/ds_agent/login_details_path.txt
+third_party/ds-agent/ds_agent/save_path.txt
+verifier_results/
+/third_party/ramp-hyperopt/
+/third_party/ramp-workflow/
+/third_party/aideml/
