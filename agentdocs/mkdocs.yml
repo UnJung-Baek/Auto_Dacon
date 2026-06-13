@@ -1,0 +1,40 @@
+site_name: Agent K Documentation
+nav:
+  - Setup:
+      - Installation: index.md
+      - Setting the LLM: llm.md
+      - Test the Setup: test_setup.md
+  - Running Agent K:
+      - Running Custom Tasks: custom_task.md
+      - Adding Kaggle Competition: add_competition.md
+      - Running CV/NLP/Multimodal Tasks: NLP.md
+      - Running Tabular Tasks: Tabular.md
+  - Running ReAct Agent:
+      - ReAct Agent: reactagent.md
+      - RAG Database creation: rag.md
+  - Submitting to Kaggle:
+      - Submission: Submission.md
+  - Running the Agent:
+      - Running the full pipeline: pipeline.md
+  - Extras:
+      - Visualization: visualize.md
+  - Reproducing Results:
+      - Running Agent K: agentkresults.md
+      - Running ReAct baselines: reactresults.md
+      - TabPFN Baseline: tabpfn.md
+      - Benchmark set: benchmark.md
+
+
+theme:
+  name: readthedocs
+extra_css:
+  - css/custom.css
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+
+
