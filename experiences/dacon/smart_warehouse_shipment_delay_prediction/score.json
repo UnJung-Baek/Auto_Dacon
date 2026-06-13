@@ -1,0 +1,9 @@
+{
+  "task_id": "smart_warehouse_shipment_delay_prediction",
+  "public_score": "11.2360866528",
+  "private_score": null,
+  "score_direction": "lower_is_better",
+  "metric": "MAE",
+  "recorded_at": "2026-06-14T01:43:48",
+  "notes": "First portable LightGBM fallback submission; internal validation MAE was 4.67554, public DACON MAE was 11.2360866528."
+}

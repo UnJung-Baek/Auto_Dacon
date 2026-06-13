@@ -298,6 +298,135 @@ def collect_submission(task_id: str, workspace_name: Path, output_root: Path) ->
     return out_path
 
 
+def run_lgbm_baseline(args: argparse.Namespace) -> Path:
+    forwarded = project_args_from_repo(args) if args.project_dir else args
+    prepare_args = argparse.Namespace(**vars(forwarded))
+    if args.project_dir:
+        prepare_args.project_dir = None
+    task_dir = prepare_task(prepare_args)
+    task_id = forwarded.task_id or infer_task_id(forwarded.competition_url)
+
+    import numpy as np
+    import pandas as pd
+    from lightgbm import LGBMRegressor, early_stopping, log_evaluation
+    from sklearn.metrics import mean_absolute_error
+    from sklearn.model_selection import train_test_split
+
+    train = pd.read_csv(task_dir / "train.csv")
+    test = pd.read_csv(task_dir / "test.csv")
+    sample = pd.read_csv(task_dir / "sample_submission.csv")
+
+    id_column = forwarded.id_column or sample.columns[0]
+    target_column = forwarded.target_column or sample.columns[1]
+    if target_column not in train.columns:
+        raise ValueError(f"Target column not found in train.csv: {target_column}")
+    if id_column not in test.columns:
+        raise ValueError(f"ID column not found in test.csv: {id_column}")
+
+    features = [col for col in train.columns if col not in {id_column, target_column}]
+    missing_in_test = [col for col in features if col not in test.columns]
+    if missing_in_test:
+        raise ValueError(f"Train feature columns missing in test.csv: {missing_in_test[:10]}")
+
+    x = train[features].copy()
+    y = train[target_column].astype(float)
+    x_test = test[features].copy()
+
+    cat_cols: list[str] = []
+    for col in features:
+        if x[col].dtype == "object" or x_test[col].dtype == "object":
+            cat_cols.append(col)
+            combined = pd.concat([x[col], x_test[col]], axis=0).astype("string").fillna("__MISSING__")
+            categories = pd.Categorical(combined).categories
+            x[col] = pd.Categorical(x[col].astype("string").fillna("__MISSING__"), categories=categories)
+            x_test[col] = pd.Categorical(x_test[col].astype("string").fillna("__MISSING__"), categories=categories)
+
+    x_train, x_valid, y_train, y_valid = train_test_split(
+        x,
+        y,
+        test_size=args.valid_size,
+        random_state=args.seed,
+    )
+    model = LGBMRegressor(
+        objective="regression_l1",
+        metric="mae",
+        n_estimators=args.n_estimators,
+        learning_rate=args.learning_rate,
+        num_leaves=args.num_leaves,
+        min_child_samples=args.min_child_samples,
+        subsample=args.subsample,
+        subsample_freq=1,
+        colsample_bytree=args.colsample_bytree,
+        reg_alpha=args.reg_alpha,
+        reg_lambda=args.reg_lambda,
+        random_state=args.seed,
+        n_jobs=args.max_cpu,
+        verbosity=-1,
+    )
+    model.fit(
+        x_train,
+        y_train,
+        eval_set=[(x_valid, y_valid)],
+        eval_metric="mae",
+        categorical_feature=cat_cols,
+        callbacks=[early_stopping(args.early_stopping_rounds), log_evaluation(args.log_every)],
+    )
+    valid_pred = model.predict(x_valid, num_iteration=model.best_iteration_)
+    valid_mae = float(mean_absolute_error(y_valid, valid_pred))
+
+    pred = model.predict(x_test, num_iteration=model.best_iteration_)
+    if args.clip_min is not None:
+        pred = np.maximum(pred, args.clip_min)
+
+    pred_df = pd.DataFrame({id_column: test[id_column].values, target_column: pred})
+    submission = sample[[id_column]].merge(pred_df, on=id_column, how="left")
+    if submission[target_column].isna().any():
+        raise RuntimeError("Missing predictions after aligning to sample_submission IDs.")
+    submission = submission[list(sample.columns)]
+
+    output_root = Path(args.output_root)
+    output_dir = output_root / task_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    submission_path = output_dir / f"submission_lgbm_baseline_{timestamp}.csv"
+    latest_path = output_dir / "submission_latest.csv"
+    submission.to_csv(submission_path, index=False)
+    submission.to_csv(latest_path, index=False)
+
+    report = {
+        "task_id": task_id,
+        "competition_url": forwarded.competition_url,
+        "submission_path": str(submission_path),
+        "latest_path": str(latest_path),
+        "metric": "MAE",
+        "valid_mae": valid_mae,
+        "best_iteration": int(model.best_iteration_ or args.n_estimators),
+        "train_shape": list(train.shape),
+        "test_shape": list(test.shape),
+        "sample_shape": list(sample.shape),
+        "id_column": id_column,
+        "target_column": target_column,
+        "feature_count": len(features),
+        "categorical_columns": cat_cols,
+        "prediction_min": float(np.min(pred)),
+        "prediction_mean": float(np.mean(pred)),
+        "prediction_max": float(np.max(pred)),
+    }
+    report_path = output_dir / f"report_lgbm_baseline_{timestamp}.json"
+    write_text_file(report_path, json.dumps(report, indent=2))
+
+    if args.project_dir:
+        project_outputs = Path(args.project_dir) / "outputs"
+        project_outputs.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(latest_path, project_outputs / "submission_latest.csv")
+        write_text_file(project_outputs / "last_baseline_report.json", json.dumps(report, indent=2))
+
+    print(f"Saved baseline submission: {latest_path}")
+    print(f"Validation MAE: {valid_mae:.6f}")
+    print(f"Saved report: {report_path}")
+    return latest_path
+
+
 def record_score(args: argparse.Namespace) -> None:
     task_id = args.task_id
     exp_dir = Path(args.experience_root) / task_id
@@ -421,6 +550,7 @@ def bootstrap(args: argparse.Namespace) -> None:
             "sentencepiece==0.2.0",
             "nvidia-ml-py",
             "scikit-posthocs==0.11.4",
+            "lightgbm==4.6.0",
         ],
         cwd=ROOT,
         check=True,
@@ -529,6 +659,46 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--workspace-name", default=str(DEFAULT_WORKSPACE))
     collect.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
 
+    baseline = sub.add_parser("baseline", help="Prepare DACON files and create a portable LightGBM baseline submission.")
+    add_common_run_args(baseline)
+    baseline.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+    baseline.add_argument("--valid-size", type=float, default=0.12)
+    baseline.add_argument("--seed", type=int, default=42)
+    baseline.add_argument("--max-cpu", type=int, default=4)
+    baseline.add_argument("--n-estimators", type=int, default=3000)
+    baseline.add_argument("--learning-rate", type=float, default=0.03)
+    baseline.add_argument("--num-leaves", type=int, default=63)
+    baseline.add_argument("--min-child-samples", type=int, default=40)
+    baseline.add_argument("--subsample", type=float, default=0.85)
+    baseline.add_argument("--colsample-bytree", type=float, default=0.85)
+    baseline.add_argument("--reg-alpha", type=float, default=0.05)
+    baseline.add_argument("--reg-lambda", type=float, default=0.2)
+    baseline.add_argument("--early-stopping-rounds", type=int, default=100)
+    baseline.add_argument("--log-every", type=int, default=50)
+    baseline.add_argument("--clip-min", type=float, default=0.0)
+
+    baseline_project = sub.add_parser("baseline-project", help="Create a LightGBM baseline from a DACON project repo.")
+    baseline_project.add_argument("--project-dir", required=True)
+    baseline_project.add_argument("--task-id", default=None)
+    baseline_project.add_argument("--id-column", default=None)
+    baseline_project.add_argument("--target-column", default=None)
+    baseline_project.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT))
+    baseline_project.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+    baseline_project.add_argument("--valid-size", type=float, default=0.12)
+    baseline_project.add_argument("--seed", type=int, default=42)
+    baseline_project.add_argument("--max-cpu", type=int, default=4)
+    baseline_project.add_argument("--n-estimators", type=int, default=3000)
+    baseline_project.add_argument("--learning-rate", type=float, default=0.03)
+    baseline_project.add_argument("--num-leaves", type=int, default=63)
+    baseline_project.add_argument("--min-child-samples", type=int, default=40)
+    baseline_project.add_argument("--subsample", type=float, default=0.85)
+    baseline_project.add_argument("--colsample-bytree", type=float, default=0.85)
+    baseline_project.add_argument("--reg-alpha", type=float, default=0.05)
+    baseline_project.add_argument("--reg-lambda", type=float, default=0.2)
+    baseline_project.add_argument("--early-stopping-rounds", type=int, default=100)
+    baseline_project.add_argument("--log-every", type=int, default=50)
+    baseline_project.add_argument("--clip-min", type=float, default=0.0)
+
     score = sub.add_parser("record-score", help="Record a DACON public/private score for later experience reuse.")
     score.add_argument("--task-id", required=True)
     score.add_argument("--public-score", required=True)
@@ -559,6 +729,8 @@ def main() -> None:
         run_project(args)
     elif args.command == "collect":
         collect_submission(args.task_id, Path(args.workspace_name), Path(args.output_root))
+    elif args.command in {"baseline", "baseline-project"}:
+        run_lgbm_baseline(args)
     elif args.command == "record-score":
         record_score(args)
     elif args.command == "build-aide-rag":

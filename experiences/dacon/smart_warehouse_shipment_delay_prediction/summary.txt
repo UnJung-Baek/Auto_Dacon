@@ -1,0 +1,5 @@
+Task: smart_warehouse_shipment_delay_prediction
+Metric: MAE lower is better
+Public score: 11.2360866528
+Private score: None
+Notes: First portable LightGBM fallback submission; internal validation MAE was 4.67554, public DACON MAE was 11.2360866528.
