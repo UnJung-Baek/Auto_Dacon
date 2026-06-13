@@ -541,20 +541,30 @@ def build_aide_rag(args: argparse.Namespace) -> None:
 def patch_ramp_hyperopt_for_windows() -> None:
     """Apply small local-portability patches after extracting Agent_K archives."""
     ramp_root = ROOT / "third_party" / "ramp-hyperopt"
+
+    def replace_if_present(path: Path, old: str, new: str, marker: str) -> None:
+        if not path.exists():
+            return
+        text = path.read_text(encoding="utf-8")
+        if marker in text:
+            return
+        if old in text:
+            path.write_text(text.replace(old, new), encoding="utf-8")
+
     actions_path = ramp_root / "ramphy" / "actions.py"
-    if actions_path.exists():
-        text = actions_path.read_text(encoding="utf-8")
-        old = (
+    replace_if_present(
+        actions_path,
+        (
             "        f_name = actions_dir / str(ramp_action_object.start_time)\n"
             "        ramp_action_object.save(f_name)\n"
-        )
-        new = (
+        ),
+        (
             "        safe_start_time = ramp_action_object.start_time.strftime(\"%Y%m%dT%H%M%S.%f\")\n"
             "        f_name = actions_dir / safe_start_time\n"
             "        ramp_action_object.save(f_name)\n"
-        )
-        if old in text and "safe_start_time = ramp_action_object.start_time.strftime" not in text:
-            actions_path.write_text(text.replace(old, new), encoding="utf-8")
+        ),
+        "safe_start_time = ramp_action_object.start_time.strftime",
+    )
 
     setup_path = ramp_root / "ramphy" / "ramp_setup" / "scripts" / "setup.py"
     if setup_path.exists():
@@ -587,6 +597,204 @@ def patch_ramp_hyperopt_for_windows() -> None:
         if old in text and "AUTO_DACON_SKIP_RAMP_SETUP_TRAIN" not in text:
             text = text.replace(old, new)
         setup_path.write_text(text, encoding="utf-8")
+
+    preproc_root = ramp_root / "ramphy" / "ramp_setup" / "workflow_elements" / "tabular_data_preprocessors"
+    num_impute_path = preproc_root / "num_col_imputing.py"
+    replace_if_present(
+        num_impute_path,
+        "from sklearn.preprocessing import OneHotEncoder\n",
+        "",
+        "cat_maps = {{}}",
+    )
+    replace_if_present(
+        num_impute_path,
+        (
+            "                # encode cat cols\n"
+            "                transformer = OneHotEncoder(\n"
+            "                    sparse_output=False,\n"
+            "                    handle_unknown=\"infrequent_if_exist\",\n"
+            "                    drop='if_binary')\n"
+            "                transformer.fit(pd.concat([X_train, X_test])[cat_cols])\n"
+            "                X_tr_imputed[cat_cols] = transformer.transform(X_tr_imputed[cat_cols])\n"
+        ),
+        (
+            "                cat_maps = {{}}\n"
+            "                combined_cat = pd.concat([X_train, X_test])[cat_cols].astype(str)\n"
+            "                for cat_col in cat_cols:\n"
+            "                    categories = pd.Index(combined_cat[cat_col].fillna(\"\").unique())\n"
+            "                    cat_maps[cat_col] = {{value: idx for idx, value in enumerate(categories)}}\n"
+            "                    X_tr_imputed[cat_col] = (\n"
+            "                        X_tr_imputed[cat_col]\n"
+            "                        .astype(str)\n"
+            "                        .fillna(\"\")\n"
+            "                        .map(cat_maps[cat_col])\n"
+            "                        .fillna(-1)\n"
+            "                        .astype(np.int32)\n"
+            "                    )\n"
+        ),
+        "cat_maps = {{}}",
+    )
+    replace_if_present(
+        num_impute_path,
+        (
+            "        if self.col in X_train.columns:\n"
+            "            self.regressor = Regressor(metadata)\n"
+        ),
+        (
+            "        if self.col in X_train.columns:\n"
+            "            if not X_train[self.col].isnull().any() and not X_test[self.col].isnull().any():\n"
+            "                print(f\"No missing values in train/test for column {{self.col}}\")\n"
+            "                return X_train, y_train, X_test, metadata\n"
+            "            self.regressor = Regressor(metadata)\n"
+        ),
+        "No missing values in train/test for column",
+    )
+    replace_if_present(
+        num_impute_path,
+        (
+            "                if len(cat_cols) > 0:                \n"
+            "                    X_te_imputed[cat_cols] = imputer_cat.transform(X_te_imputed[cat_cols])\n"
+        ),
+        (
+            "                if len(cat_cols) > 0:                \n"
+            "                    X_te_imputed[cat_cols] = imputer_cat.transform(X_te_imputed[cat_cols])\n"
+            "                    \n"
+            "                    for cat_col in cat_cols:\n"
+            "                        X_te_imputed[cat_col] = (\n"
+            "                            X_te_imputed[cat_col]\n"
+            "                            .astype(str)\n"
+            "                            .fillna(\"\")\n"
+            "                            .map(cat_maps[cat_col])\n"
+            "                            .fillna(-1)\n"
+            "                            .astype(np.int32)\n"
+            "                        )\n"
+        ),
+        "X_te_imputed[cat_col]",
+    )
+    replace_if_present(
+        num_impute_path,
+        (
+            "                if len(cat_cols) > 0:                \n"
+            "                    X_te_imputed[cat_cols] = imputer_cat.transform(X_te_imputed[cat_cols])\n"
+            "                X_te[self.col] = self.regressor.predict(X_te_imputed)\n"
+        ),
+        (
+            "                if len(cat_cols) > 0:                \n"
+            "                    X_te_imputed[cat_cols] = imputer_cat.transform(X_te_imputed[cat_cols])\n"
+            "                    for cat_col in cat_cols:\n"
+            "                        X_te_imputed[cat_col] = (\n"
+            "                            X_te_imputed[cat_col]\n"
+            "                            .astype(str)\n"
+            "                            .fillna(\"\")\n"
+            "                            .map(cat_maps[cat_col])\n"
+            "                            .fillna(-1)\n"
+            "                            .astype(np.int32)\n"
+            "                        )\n"
+            "                X_te[self.col] = self.regressor.predict(X_te_imputed)\n"
+        ),
+        ".map(cat_maps[cat_col])",
+    )
+
+    cat_encoding_path = preproc_root / "cat_col_encoding.py"
+    replace_if_present(
+        cat_encoding_path,
+        (
+            "ENCODING_STRATEGY = str(encoding_strategy{col})\n"
+            "if ENCODING_STRATEGY[:7] == \"Hashing\":\n"
+        ),
+        (
+            "ENCODING_STRATEGY = str(encoding_strategy{col})\n"
+            "N_FEATURES_FOR_HASHING = 20\n"
+            "if ENCODING_STRATEGY[:7] == \"Hashing\":\n"
+        ),
+        "N_FEATURES_FOR_HASHING = 20",
+    )
+    replace_if_present(
+        cat_encoding_path,
+        "        global R_FEATURES_FOR_HASHING\n",
+        "        global R_FEATURES_FOR_HASHING\n        global N_FEATURES_FOR_HASHING\n",
+        "global N_FEATURES_FOR_HASHING",
+    )
+    replace_if_present(
+        cat_encoding_path,
+        "        if self.col in X_train.columns:\n            if ENCODING_STRATEGY == \"OneHot\":\n",
+        (
+            "        if self.col in X_train.columns:\n"
+            "            unique_count = metadata[\"data_description\"].get(\"unique_value_count\", {{}}).get(\n"
+            "                self.col,\n"
+            "                len(pd.concat([X_train[self.col], X_test[self.col]]).dropna().unique()),\n"
+            "            )\n"
+            "            if unique_count > 20:\n"
+            "                ENCODING_STRATEGY = \"Hashing\"\n"
+            "                N_FEATURES_FOR_HASHING = min(32, max(8, int(np.ceil(np.log2(unique_count + 1)))))\n"
+            "            if ENCODING_STRATEGY == \"OneHot\":\n"
+        ),
+        "unique_count = metadata",
+    )
+    replace_if_present(
+        cat_encoding_path,
+        (
+            "            elif ENCODING_STRATEGY == \"Hashing\":\n"
+            "                n_features_for_hashing = max(1, int(R_FEATURES_FOR_HASHING * len(X_train)))\n"
+        ),
+        (
+            "            elif ENCODING_STRATEGY == \"Hashing\":\n"
+            "                n_features_for_hashing = N_FEATURES_FOR_HASHING\n"
+        ),
+        "n_features_for_hashing = N_FEATURES_FOR_HASHING",
+    )
+
+    orchestration_path = ramp_root / "ramphy" / "ramp_setup" / "scripts" / "orchestration.py"
+    if orchestration_path.exists():
+        text = orchestration_path.read_text(encoding="utf-8")
+        if "import os" not in text.splitlines()[:8]:
+            text = text.replace("import json\n", "import json\nimport os\n", 1)
+        if "AUTO_DACON_MAX_EMPTY_HYPEROPT_ROUNDS" not in text:
+            text = text.replace(
+                "    improvement_speed_df = pd.DataFrame(columns=[\"round\"] + base_predictors)\n",
+                (
+                    "    improvement_speed_df = pd.DataFrame(columns=[\"round\"] + base_predictors)\n"
+                    "    max_empty_hyperopt_rounds = int(os.environ.get(\"AUTO_DACON_MAX_EMPTY_HYPEROPT_ROUNDS\", \"3\"))\n"
+                    "    empty_hyperopt_rounds = 0\n"
+                ),
+                1,
+            )
+            text = text.replace(
+                "        if hyperopt_action is None:\n            continue\n        elif len(hyperopt_action.mean_scores) > 0:\n",
+                (
+                    "        if hyperopt_action is None:\n"
+                    "            continue\n"
+                    "        elif len(hyperopt_action.mean_scores) > 0:\n"
+                    "            empty_hyperopt_rounds = 0\n"
+                ),
+                1,
+            )
+            text = text.replace(
+                "        #    input(\"Press Enter to continue...\")\n    return blended_submissions, round_datetime\n",
+                (
+                    "        else:\n"
+                    "            empty_hyperopt_rounds += 1\n"
+                    "            print(f\"No hyperopt submissions created in this round ({empty_hyperopt_rounds}/{max_empty_hyperopt_rounds}).\")\n"
+                    "            if max_empty_hyperopt_rounds > 0 and empty_hyperopt_rounds >= max_empty_hyperopt_rounds:\n"
+                    "                print(\"Stopping hyperopt race because no candidates were created.\")\n"
+                    "                break\n"
+                    "        #    input(\"Press Enter to continue...\")\n"
+                    "    return blended_submissions, round_datetime\n"
+                ),
+                1,
+            )
+        if "No blended submissions were produced; using base predictors for final training." not in text:
+            text = text.replace(
+                "    train_on_all_folds(\n        submissions=list(blended_submissions),\n",
+                (
+                    "    if not blended_submissions:\n"
+                    "        print(\"No blended submissions were produced; using base predictors for final training.\")\n"
+                    "        blended_submissions = set(base_predictors)\n"
+                    "    train_on_all_folds(\n        submissions=list(blended_submissions),\n"
+                ),
+                1,
+            )
+        orchestration_path.write_text(text, encoding="utf-8")
 
 
 def bootstrap(args: argparse.Namespace) -> None:
