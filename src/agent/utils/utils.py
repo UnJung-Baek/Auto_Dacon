@@ -595,8 +595,14 @@ def run_python_code(
     with open(code_output_path, 'w') as f:
         f.write('')
 
-    cmd = f"cd {workspace_path} && {path_to_python} {code_path} 2> {aux_code_error_path} > {code_output_path}"
-    os.system(cmd)
+    with open(aux_code_error_path, "w") as aux_err_f, open(code_output_path, "w") as output_f:
+        subprocess.run(
+            [path_to_python, code_path],
+            cwd=workspace_path,
+            stdout=output_f,
+            stderr=aux_err_f,
+            text=True,
+        )
 
     # Catch errors --> find some errors in aux_code_error_path, then any error in code_error_path
     with open(aux_code_error_path) as f:

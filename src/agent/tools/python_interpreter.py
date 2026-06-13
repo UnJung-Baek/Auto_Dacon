@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import subprocess
 from typing import Any
 
 from agent.memory import MemKey
@@ -77,9 +78,14 @@ class PythonInterpreter(Tool):
 
             # run the code
             print(os.getcwd())
-            cmd = f"{self.path_to_python} {self.code_path} 2> {self.aux_code_error_path} > {self.code_output_path}"
-            print(cmd)
-            os.system(cmd)
+            print([self.path_to_python, self.code_path])
+            with open(self.aux_code_error_path, "w") as aux_err_f, open(self.code_output_path, "w") as output_f:
+                subprocess.run(
+                    [self.path_to_python, self.code_path],
+                    stdout=output_f,
+                    stderr=aux_err_f,
+                    text=True,
+                )
 
             # Catch errors --> find some errors in aux_code_error_path, then any error in code_error_path
             with open(self.aux_code_error_path) as f:
