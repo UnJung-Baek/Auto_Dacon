@@ -416,18 +416,30 @@ def run_ds_tabular_ramp(
         if predictor.strip()
     ]
     base_predictor_args = " ".join(f"--base-predictors {predictor}" for predictor in base_predictors)
+    default_preprocessors = "drop_id,base_columnwise,rm_constant_col" if os.name == "nt" else ""
+    data_preprocessors = [
+        preprocessor.strip()
+        for preprocessor in os.environ.get("AUTO_DACON_DATA_PREPROCESSORS", default_preprocessors).split(",")
+        if preprocessor.strip()
+    ]
+    data_preprocessor_args = " ".join(f"--data-preprocessors {preprocessor}" for preprocessor in data_preprocessors)
+    n_rounds = int(os.environ.get("AUTO_DACON_N_ROUNDS", "1000"))
+    n_trials_per_round = int(os.environ.get("AUTO_DACON_N_TRIALS_PER_ROUND", "1"))
+    n_folds_hyperopt = int(os.environ.get("AUTO_DACON_N_FOLDS_HYPEROPT", "1" if os.name == "nt" else "3"))
     n_folds_final_blend = int(os.environ.get("AUTO_DACON_N_FOLDS_FINAL_BLEND", "5" if os.name == "nt" else "30"))
     ramp_run_hyperopt_race_command = (
         f"\"{ramp_hyperopt_race_exe}\" --ramp-kit ramp_kit "
         f"--version {name_version} "
         f"--number {setup_version} "
         f"--kit-root {setup_dir} "
-        f"--n-rounds 1000 "
-        f"--n-trials-per-round 1 "
+        f"--n-rounds {n_rounds} "
+        f"--n-trials-per-round {n_trials_per_round} "
+        f"--n-folds-hyperopt {n_folds_hyperopt} "
         f"--n-folds-final-blend {n_folds_final_blend} "
         f"--max-time {remaining_hours} "
         f"--n-cpu-per-run {max_cpu} "
         f"{base_predictor_args} "
+        f"{data_preprocessor_args} "
     )
     with open(cmd_save_path, 'a') as f:
         f.write(ramp_run_hyperopt_race_command + "\n\n")

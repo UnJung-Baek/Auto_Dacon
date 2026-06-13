@@ -20,8 +20,6 @@ DEFAULT_RAG_PATH = Path("C:/Auto_Dacon_RAG/kaggle_cases_db")
 def infer_task_id(competition_url: str) -> str:
     path_parts = [part for part in urlparse(competition_url).path.split("/") if part]
     numeric_ids = [part for part in path_parts if part.isdigit()]
-    if numeric_ids and numeric_ids[-1] == "236696":
-        return "smart_warehouse_shipment_delay_prediction"
     if numeric_ids:
         return f"dacon_{numeric_ids[-1]}"
     return "dacon_competition"
@@ -55,7 +53,18 @@ def project_args_from_repo(args: argparse.Namespace) -> argparse.Namespace:
     forwarded.task_id = args.task_id or metadata.get("task_id")
     forwarded.id_column = args.id_column or metadata.get("id_column")
     forwarded.target_column = args.target_column or metadata.get("target_column")
+    forwarded.metric = args.metric or metadata.get("metric") or "MAE"
     forwarded.project_dir = str(project_dir)
+    if not getattr(forwarded, "competition_context", None):
+        context_candidates = [
+            project_dir / "competition_context.md",
+            project_dir / "notes" / "competition_context.md",
+            project_dir / "notes" / "competition.md",
+        ]
+        for context_path in context_candidates:
+            if context_path.exists():
+                forwarded.competition_context = str(context_path)
+                break
     return forwarded
 
 
@@ -105,21 +114,30 @@ def make_descriptions(
         sample_profile: dict,
         target_column: str,
         id_column: str,
+        metric: str,
+        competition_context: str | None = None,
 ) -> tuple[str, str, str]:
+    common_train_cols = set(train_profile["columns"])
+    common_test_cols = set(test_profile["columns"])
+    shared_feature_cols = sorted((common_train_cols & common_test_cols) - {id_column})
+    train_only_cols = sorted(common_train_cols - common_test_cols)
+    test_only_cols = sorted(common_test_cols - common_train_cols)
+    context_block = competition_context.strip() if competition_context else "No additional competition context file was provided."
+
     task_description = f"""DACON competition URL: {competition_url}
 
-Task: Predict the next 30-minute average shipment or warehouse operation delay for each test row.
+Competition context supplied by the project:
+{context_block}
 
-This is a tabular regression problem for a smart warehouse setting. The target column is
-`{target_column}`. The ID column is `{id_column}` and must be preserved in the final submission.
-
-The provided train and test files already include the layout information merged into the main
-tables. Do not expect a separate layout_info.csv file.
+Task:
+- Build a predictive model from the provided DACON train.csv and test.csv files.
+- The target column is `{target_column}`.
+- The ID column is `{id_column}` and must be preserved in the final submission.
 
 Final output requirement:
 - Create a CSV submission with the same columns and row order as sample_submission.csv.
-- The prediction column must be `{target_column}`.
-- Predictions should be numeric delay values.
+- The prediction column(s) must match sample_submission.csv exactly.
+- Do not add helper columns, drop rows, reorder rows, or leak information from test labels.
 """
 
     data_description = f"""Data files:
@@ -138,16 +156,20 @@ Sample submission columns:
 
 Column notes:
 - `{id_column}` is the row identifier.
-- `layout_id` and `scenario_id` are categorical identifiers.
-- `layout_type` is categorical.
-- Many operational, environmental, robot, congestion, staffing, and warehouse-layout features are numeric.
-- Missing values are present and should be handled robustly.
+- Shared train/test feature columns ({len(shared_feature_cols)}):
+{", ".join(shared_feature_cols)}
+- Train-only columns ({len(train_only_cols)}):
+{", ".join(train_only_cols)}
+- Test-only columns ({len(test_only_cols)}):
+{", ".join(test_only_cols)}
+- Treat object/string columns as categorical or text features as appropriate.
+- Missing values may be present and should be handled robustly.
 """
 
-    metric_description = f"""Evaluation metric: Mean Absolute Error (MAE).
+    metric_description = f"""Evaluation metric: {metric}.
 
 The public leaderboard uses a subset of the test data, and the private leaderboard uses the
-remaining hidden test data. Optimize validation for MAE and avoid leakage from IDs, row order,
+remaining hidden test data. Optimize validation for the official metric and avoid leakage from IDs, row order,
 or any information unavailable at prediction time.
 """
 
@@ -169,6 +191,10 @@ def prepare_task(args: argparse.Namespace) -> Path:
 
     id_column = args.id_column or sample_profile["columns"][0]
     target_column = args.target_column or sample_profile["columns"][1]
+    metric = args.metric or "MAE"
+    competition_context = None
+    if getattr(args, "competition_context", None):
+        competition_context = ensure_file(args.competition_context, "competition context").read_text(encoding="utf-8")
 
     task_dir.mkdir(parents=True, exist_ok=True)
     copy_csv(train_path, task_dir / "train.csv")
@@ -182,6 +208,8 @@ def prepare_task(args: argparse.Namespace) -> Path:
         sample_profile=sample_profile,
         target_column=target_column,
         id_column=id_column,
+        metric=metric,
+        competition_context=competition_context,
     )
     write_text_file(task_dir / "raw_task_description.txt", raw_task)
     write_text_file(task_dir / "raw_data_description.txt", raw_data)
@@ -192,7 +220,8 @@ def prepare_task(args: argparse.Namespace) -> Path:
         "competition_url": args.competition_url,
         "id_column": id_column,
         "target_column": target_column,
-        "metric": "MAE",
+        "metric": metric,
+        "competition_context_file": str(args.competition_context) if getattr(args, "competition_context", None) else None,
         "prepared_at": datetime.now().isoformat(timespec="seconds"),
         "data_dir": str(task_dir),
         "train_profile": train_profile,
@@ -398,7 +427,7 @@ def run_lgbm_baseline(args: argparse.Namespace) -> Path:
         "competition_url": forwarded.competition_url,
         "submission_path": str(submission_path),
         "latest_path": str(latest_path),
-        "metric": "MAE",
+        "metric": forwarded.metric or "MAE",
         "valid_mae": valid_mae,
         "best_iteration": int(model.best_iteration_ or args.n_estimators),
         "train_shape": list(train.shape),
@@ -436,14 +465,14 @@ def record_score(args: argparse.Namespace) -> None:
         "public_score": args.public_score,
         "private_score": args.private_score,
         "score_direction": "lower_is_better",
-        "metric": "MAE",
+        "metric": args.metric,
         "recorded_at": datetime.now().isoformat(timespec="seconds"),
         "notes": args.notes or "",
     }
     (exp_dir / "score.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     summary = (
         f"Task: {task_id}\n"
-        f"Metric: MAE lower is better\n"
+        f"Metric: {args.metric} lower is better\n"
         f"Public score: {args.public_score}\n"
         f"Private score: {args.private_score}\n"
         f"Notes: {args.notes or ''}\n"
@@ -584,7 +613,7 @@ def doctor(args: argparse.Namespace) -> None:
     checks.append(("AIDE RAG DB exists", (Path(args.rag_path) / "kaggle_db" / "index.faiss").exists(), str(args.rag_path)))
 
     import_results = []
-    for module in ["agent", "ds_agent", "hydra", "pandas", "sklearn", "rampwf", "ramphy", "langchain", "py7zr", "rarfile"]:
+    for module in ["agent", "ds_agent", "hydra", "pandas", "sklearn", "rampwf", "ramphy", "langchain", "py7zr", "rarfile", "lightgbm"]:
         try:
             __import__(module)
             import_results.append((module, True))
@@ -614,8 +643,10 @@ def parse_args() -> argparse.Namespace:
         p.add_argument("--task-id", default=None)
         p.add_argument("--id-column", default=None)
         p.add_argument("--target-column", default=None)
+        p.add_argument("--metric", default="MAE")
         p.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT))
         p.add_argument("--project-dir", default=None)
+        p.add_argument("--competition-context", default=None)
 
     prepare = sub.add_parser("prepare", help="Create an Agent_K local-task folder from DACON files.")
     add_common_run_args(prepare)
@@ -640,7 +671,9 @@ def parse_args() -> argparse.Namespace:
     project_run.add_argument("--task-id", default=None)
     project_run.add_argument("--id-column", default=None)
     project_run.add_argument("--target-column", default=None)
+    project_run.add_argument("--metric", default=None)
     project_run.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT))
+    project_run.add_argument("--competition-context", default=None)
     project_run.add_argument("--openrouter-api-key", default=None)
     project_run.add_argument("--llm", default=DEFAULT_LLM)
     project_run.add_argument("--code-llm", default=None)
@@ -682,7 +715,9 @@ def parse_args() -> argparse.Namespace:
     baseline_project.add_argument("--task-id", default=None)
     baseline_project.add_argument("--id-column", default=None)
     baseline_project.add_argument("--target-column", default=None)
+    baseline_project.add_argument("--metric", default=None)
     baseline_project.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT))
+    baseline_project.add_argument("--competition-context", default=None)
     baseline_project.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     baseline_project.add_argument("--valid-size", type=float, default=0.12)
     baseline_project.add_argument("--seed", type=int, default=42)
@@ -703,6 +738,7 @@ def parse_args() -> argparse.Namespace:
     score.add_argument("--task-id", required=True)
     score.add_argument("--public-score", required=True)
     score.add_argument("--private-score", default=None)
+    score.add_argument("--metric", default="MAE")
     score.add_argument("--notes", default=None)
     score.add_argument("--experience-root", default=str(DEFAULT_EXPERIENCE_ROOT))
 

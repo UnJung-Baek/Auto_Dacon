@@ -7,13 +7,21 @@ use the LLM for setup/EDA/code generation, search prior cases through RAG, run m
 experiments, collect a submission, record the public score, and reuse that experience
 later.
 
+Repository roles:
+
+- `Auto_Dacon`: reusable engine for many DACON competitions.
+- One competition repo per DACON project: data, `auto_dacon_task.json`,
+  `competition_context.md`, notes, and local outputs.
+
 Current DACON flow:
 
 1. Prepare local CSV files into an Agent_K-style local task.
 2. Run the Agent_K pipeline with OpenRouter.
-3. If the full RAMP race is unstable on Windows, create a reproducible LightGBM
-   baseline submission with the same Auto_Dacon CLI.
-4. Record the DACON public score as experience for later reuse.
+3. Let Agent_K/RAMP create the starting kit, base predictors, hyperopt/blend run,
+   and final submission.
+4. If the full RAMP race is unstable on Windows, create a reproducible LightGBM
+   fallback submission with the same Auto_Dacon CLI.
+5. Record the DACON public score as experience for later reuse.
 
 ## Windows Setup
 
@@ -32,6 +40,7 @@ $env:OPENROUTER_API_KEY="..."
 The competition repo should contain:
 
 - `auto_dacon_task.json`
+- `competition_context.md` or `notes/competition_context.md`
 - `data/train.csv`
 - `data/test.csv`
 - `data/sample_submission.csv`
@@ -45,7 +54,17 @@ Full Agent_K/Auto_Dacon run:
   --max-cpu 4
 ```
 
-Portable baseline run:
+Windows starts conservatively so the Agent_K/RAMP baseline can finish on local
+machines. You can expand the search later:
+
+```powershell
+$env:AUTO_DACON_BASE_PREDICTORS="lgbm,xgboost,catboost"
+$env:AUTO_DACON_N_FOLDS_HYPEROPT="3"
+$env:AUTO_DACON_N_FOLDS_FINAL_BLEND="5"
+$env:AUTO_DACON_DATA_PREPROCESSORS="drop_id,drop_columns,base_columnwise,col_in_train_only,rm_constant_col"
+```
+
+Portable fallback baseline run:
 
 ```powershell
 .\.venv-agentk\Scripts\python.exe auto_dacon.py baseline-project `
