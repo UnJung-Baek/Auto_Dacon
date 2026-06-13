@@ -264,6 +264,12 @@ def run_agent(args: argparse.Namespace) -> None:
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    ramp_preset = env.get("AUTO_DACON_RAMP_PRESET", "agentk").lower()
+    if ramp_preset not in {"agentk", "windows_fast", "fast", "local_fast"}:
+        raise ValueError("AUTO_DACON_RAMP_PRESET must be one of: agentk, windows_fast, fast, local_fast")
+    env["AUTO_DACON_RAMP_PRESET"] = ramp_preset
+    use_fast_ramp_defaults = ramp_preset in {"windows_fast", "fast", "local_fast"}
+    env.setdefault("AUTO_DACON_SKIP_RAMP_SETUP_TRAIN", "1" if use_fast_ramp_defaults else "0")
     if args.openrouter_api_key:
         env["OPENROUTER_API_KEY"] = args.openrouter_api_key
     if "OPENROUTER_API_KEY" not in env:
@@ -547,7 +553,7 @@ def patch_ramp_hyperopt_for_windows() -> None:
             "    # actual hyperopt race. The original Agent_K path also trains the starting\n"
             "    # kit here, which can hang or consume a large slice of the time budget on\n"
             "    # Windows with wide tabular datasets.\n"
-            "    if str(os.environ.get(\"AUTO_DACON_SKIP_RAMP_SETUP_TRAIN\", \"1\")).lower() not in {\"1\", \"true\", \"yes\"}:\n"
+            "    if str(os.environ.get(\"AUTO_DACON_SKIP_RAMP_SETUP_TRAIN\", \"0\")).lower() not in {\"1\", \"true\", \"yes\"}:\n"
             "        rh.actions.train(\n"
             "            ramp_kit_dir = ramp_kit_dir,\n"
             "            submission = 'starting_kit',\n"

@@ -379,6 +379,14 @@ def run_ds_tabular_ramp(
     time_for_main_pipeline = time_for_main_pipeline / 3600
     name_version = llm.split('/')[-1]
     agent_root = "."
+    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET", "agentk").lower()
+    if ramp_preset not in {"agentk", "windows_fast", "fast", "local_fast"}:
+        raise ValueError(
+            "AUTO_DACON_RAMP_PRESET must be one of: agentk, windows_fast, fast, local_fast"
+        )
+    use_fast_ramp_defaults = ramp_preset in {"windows_fast", "fast", "local_fast"}
+    os.environ.setdefault("AUTO_DACON_SKIP_RAMP_SETUP_TRAIN", "1" if use_fast_ramp_defaults else "0")
+
     scripts_dir = Path(sys.executable).parent
     exe_suffix = ".exe" if os.name == "nt" else ""
     ramp_setup_exe = scripts_dir / f"ramp-setup{exe_suffix}"
@@ -409,15 +417,6 @@ def run_ds_tabular_ramp(
     elapsed_secs = time.time() - start_time
     elapsed_hours = elapsed_secs / 3600
     remaining_hours = max(time_for_main_pipeline - elapsed_hours, 0)
-    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET")
-    if ramp_preset is None:
-        ramp_preset = "windows_fast" if os.name == "nt" else "agentk"
-    ramp_preset = ramp_preset.lower()
-    if ramp_preset not in {"agentk", "windows_fast", "fast", "local_fast"}:
-        raise ValueError(
-            "AUTO_DACON_RAMP_PRESET must be one of: agentk, windows_fast, fast, local_fast"
-        )
-    use_fast_ramp_defaults = ramp_preset in {"windows_fast", "fast", "local_fast"}
 
     default_predictors = "lgbm" if use_fast_ramp_defaults else "lgbm,xgboost,catboost"
     base_predictors = [
@@ -711,9 +710,7 @@ def main(
     """
     debug_mode = os.environ.get("AGENT_DEBUG", False)
     allow_default_response = os.environ.get("ALLOW_DEFAULT_RESPONSE", False)
-    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET")
-    if ramp_preset is None:
-        ramp_preset = "windows_fast" if os.name == "nt" else "agentk"
+    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET", "agentk")
     default_final_test = "0" if is_local_task and ramp_preset.lower() != "agentk" else "1"
     use_final_unit_test = os.environ.get("AUTO_DACON_USE_FINAL_UNIT_TEST", default_final_test).lower()
     use_final_unit_test = use_final_unit_test in {"1", "true", "yes", "on"}
