@@ -713,6 +713,19 @@ def get_terminal_width() -> int:
     return width
 
 
+def _extract_env_prefix(command: str) -> tuple[dict[str, str], str]:
+    """Extract leading POSIX-style VAR=value assignments before running a command."""
+    env_updates: dict[str, str] = {}
+    pattern = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)\s+")
+    while True:
+        match = pattern.match(command)
+        if not match:
+            return env_updates, command
+        key, value = match.group(1), match.group(2).strip("\"'")
+        env_updates[key] = value
+        command = command[match.end():]
+
+
 def run_command(command: str) -> str | None:
     """
     Execute a shell command, print its real-time output, and return the full output as a string.
@@ -723,7 +736,10 @@ def run_command(command: str) -> str | None:
         The combined stdout output from the command if successful, or None
     """
     try:
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        env_updates, command = _extract_env_prefix(command)
+        env = os.environ.copy()
+        env.update(env_updates)
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         output = []
         for line in iter(process.stdout.readline, ''):
             if line:

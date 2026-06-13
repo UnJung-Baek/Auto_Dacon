@@ -130,7 +130,9 @@ def run_setup_pipeline(
         exp_dir: Path,
         setup_log_dir: Path,
         use_final_unit_test: bool = True,
-        default_response_path: str = None
+        default_response_path: str = None,
+        enable_agent_rag: bool = False,
+        agent_rag_path: str | None = None,
 ) -> tuple[bool, float, Path]:
     """
     Runs the setup pipeline for a given task configuration by repeatedly attempting to set up
@@ -191,6 +193,11 @@ def run_setup_pipeline(
         if alt_raw_data_root:
             setup_command = f"ALT_RAW_DATA_ROOT={alt_raw_data_root} " + setup_command
 
+        if enable_agent_rag:
+            setup_command += "method.pre_episode_start_flow.sequence.1.disabled=false "
+            if agent_rag_path:
+                setup_command += f"task.db_faiss_path={agent_rag_path} "
+
         if default_response_path:
             setup_command += f"+agent.read_answer_from_file_path={default_response_path} "
 
@@ -246,6 +253,8 @@ def run_ds_main_pipeline(
         debug_mode: bool = False,
         default_response_path: str = None,
         terminate_after_training: bool = False,
+        enable_agent_rag: bool = False,
+        agent_rag_path: str | None = None,
 ) -> bool:
     """
     Runs the main data science pipeline using the given setup directory
@@ -309,6 +318,11 @@ def run_ds_main_pipeline(
     )
     if alt_raw_data_root:
         main_pipeline_command = f"ALT_RAW_DATA_ROOT={alt_raw_data_root} " + main_pipeline_command
+
+    if enable_agent_rag:
+        main_pipeline_command += "method.pre_episode_start_flow.sequence.0.disabled=false "
+        if agent_rag_path:
+            main_pipeline_command += f"task.db_faiss_path={agent_rag_path} "
 
     if default_response_path:
         main_pipeline_command += f"+agent.read_answer_from_file_path={default_response_path} "
@@ -453,7 +467,9 @@ def run_setup_and_main_pipline(
         terminate_after_training: bool = False,
         run_setup_only: bool = False,
         attempt: int | None = None,
-        attempt_spec: str = ""
+        attempt_spec: str = "",
+        enable_agent_rag: bool = False,
+        agent_rag_path: str | None = None,
 ) -> dict[str, ...]:
     """
     Executes the setup and main pipeline for a given task.
@@ -513,7 +529,9 @@ def run_setup_and_main_pipline(
         exp_dir=exp_dir,
         setup_log_dir=setup_log_dir,
         use_final_unit_test=use_final_unit_test,
-        default_response_path=setup_default_response_path
+        default_response_path=setup_default_response_path,
+        enable_agent_rag=enable_agent_rag,
+        agent_rag_path=agent_rag_path,
     )
     if run_setup_only:
         return {'setup': is_setup_successful}
@@ -557,7 +575,9 @@ def run_setup_and_main_pipline(
                 allow_default_response=allow_default_response,
                 debug_mode=debug_mode,
                 is_local_task=is_local_task,
-                terminate_after_training=terminate_after_training
+                terminate_after_training=terminate_after_training,
+                enable_agent_rag=enable_agent_rag,
+                agent_rag_path=agent_rag_path,
             )
 
         main_pipeline_time_taken = time.time() - main_pipeline_start_time
@@ -597,7 +617,9 @@ def main(
         terminate_after_training: bool = False,
         run_setup_only: bool = False,
         attempt: int | None = None,
-        attempt_spec: str = ""
+        attempt_spec: str = "",
+        enable_agent_rag: bool = False,
+        agent_rag_path: str | None = None,
 ) -> None:
     """
     Runs the setup and main pipeline stages for a task.
@@ -658,6 +680,8 @@ def main(
         alt_raw_data_root=alt_raw_data_root,
         allow_default_response=allow_default_response,
         debug_mode=debug_mode,
+        enable_agent_rag=enable_agent_rag,
+        agent_rag_path=agent_rag_path,
     )
     if run_status['setup']:
         if not run_setup_only:
@@ -692,6 +716,10 @@ def add_shared_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--alt_raw_data_root", type=str, required=False, help="Alternate data root directory")
     parser.add_argument("--blend_after_n", type=int, required=False, help="Blend after n runs")
     parser.add_argument("--use_ci_handling", action='store_true', default=False, )
+    parser.add_argument("--enable_agent_rag", action='store_true', default=False,
+                        help="Enable Agent_K's ds-agent FAISS RAG command.")
+    parser.add_argument("--agent_rag_path", type=str, required=False,
+                        help="Path to the Agent_K ds-agent FAISS RAG database root.")
 
 
 def parse_args() -> argparse.Namespace:

@@ -16,7 +16,7 @@ if __name__ == "__main__":
         workspace_name=args.workspace_name,
         task_id=args.task_id,
         llm=args.llm,
-        code_llm=args.llm,
+        code_llm=args.code_llm,
         is_local_task=args.is_local_task,
         is_tabular=args.tabular_task,
         total_time=args.total_time,
@@ -26,5 +26,7 @@ if __name__ == "__main__":
         alt_raw_data_root=args.alt_raw_data_root,
         max_cpu=args.max_cpu,
         attempt=args.attempt,
-        attempt_spec=args.attempt_spec
+        attempt_spec=args.attempt_spec,
+        enable_agent_rag=args.enable_agent_rag,
+        agent_rag_path=args.agent_rag_path,
     )
