@@ -685,13 +685,13 @@ def main(
     )
     if run_status['setup']:
         if not run_setup_only:
-            print(f"✅ Setup pipeline successful.")
+            print("Setup pipeline successful.")
             if 'main' in run_status.keys() and run_status['main']:
-                print(f"✅ Main pipeline successful.")
+                print("Main pipeline successful.")
             else:
-                print(f"❌  Main pipeline failed")
+                print("Main pipeline failed")
     else:
-        print(f"❌ Failed to setup successfully.", flush=True)
+        print("Failed to setup successfully.", flush=True)
 
 def add_shared_args(parser: argparse.ArgumentParser) -> None:
     # Core task config
@@ -747,9 +747,9 @@ def validate_args(args) -> None:
         None
     """
     if args.total_time < 0:
-        print("❌ Error: <total_time> must be a non-negative integer.", flush=True)
+        print("Error: <total_time> must be a non-negative integer.", flush=True)
         sys.exit(1)
 
     if args.max_cpu > os.cpu_count():
-        print("❌ Error: <max_cpu> must be less than or equal to max CPUs available.", flush=True)
+        print("Error: <max_cpu> must be less than or equal to max CPUs available.", flush=True)
         sys.exit(1)

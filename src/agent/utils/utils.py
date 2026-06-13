@@ -745,12 +745,31 @@ def run_command(command: str) -> str | None:
         env_updates, command = _extract_env_prefix(command)
         env = os.environ.copy()
         env.update(env_updates)
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        env.setdefault("PYTHONUTF8", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
         output = []
         for line in iter(process.stdout.readline, ''):
             if line:
                 print(line, end='')
                 output.append(line)
+        stderr = process.stderr.read() if process.stderr else ""
+        if stderr:
+            print(stderr, end="", flush=True)
+            output.append(stderr)
+        return_code = process.wait()
+        if return_code != 0:
+            print(f"Command failed with exit code {return_code}: {command}", flush=True)
+            return None
         return "".join(output)
     except Exception as e:
         print(f"Error running command: {e}", flush=True)

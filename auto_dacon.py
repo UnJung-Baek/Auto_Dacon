@@ -8,15 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-import pandas as pd
-
-
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DATA_ROOT = Path("data") / "dacon"
 DEFAULT_WORKSPACE = Path("workspace_dacon")
 DEFAULT_OUTPUT_ROOT = Path("outputs") / "dacon"
 DEFAULT_EXPERIENCE_ROOT = Path("experiences") / "dacon"
 DEFAULT_LLM = "openrouter/qwen25_72b"
+DEFAULT_RAG_PATH = Path("C:/Auto_Dacon_RAG/kaggle_cases_db")
 
 
 def infer_task_id(competition_url: str) -> str:
@@ -36,12 +34,39 @@ def ensure_file(path: str | Path, label: str) -> Path:
     return resolved
 
 
+def project_args_from_repo(args: argparse.Namespace) -> argparse.Namespace:
+    project_dir = ensure_file(args.project_dir, "project repo")
+    metadata_path = project_dir / "auto_dacon_task.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"auto_dacon_task.json not found in {project_dir}")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    data_dir = project_dir / "data"
+    train = data_dir / "train.csv"
+    test = data_dir / "test.csv"
+    sample = data_dir / "sample_submission.csv"
+    for path, label in [(train, "train.csv"), (test, "test.csv"), (sample, "sample_submission.csv")]:
+        ensure_file(path, label)
+
+    forwarded = argparse.Namespace(**vars(args))
+    forwarded.competition_url = metadata["competition_url"]
+    forwarded.train = str(train)
+    forwarded.test = str(test)
+    forwarded.sample_submission = str(sample)
+    forwarded.task_id = args.task_id or metadata.get("task_id")
+    forwarded.id_column = args.id_column or metadata.get("id_column")
+    forwarded.target_column = args.target_column or metadata.get("target_column")
+    forwarded.project_dir = str(project_dir)
+    return forwarded
+
+
 def copy_csv(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dst)
 
 
 def profile_csv(path: Path, nrows: int = 5000) -> dict:
+    import pandas as pd
+
     preview = pd.read_csv(path, nrows=nrows)
     columns = list(preview.columns)
     dtypes = {col: str(dtype) for col, dtype in preview.dtypes.items()}
@@ -190,6 +215,8 @@ def run_agent(args: argparse.Namespace) -> None:
     task_id = args.task_id or infer_task_id(args.competition_url)
 
     env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     if args.openrouter_api_key:
         env["OPENROUTER_API_KEY"] = args.openrouter_api_key
     if "OPENROUTER_API_KEY" not in env:
@@ -221,6 +248,10 @@ def run_agent(args: argparse.Namespace) -> None:
     subprocess.run(cmd, cwd=ROOT, env=env, check=True)
     collect_submission(task_id=task_id, workspace_name=Path(args.workspace_name), output_root=Path(args.output_root))
     print(f"Input task directory: {task_dir}")
+
+
+def run_project(args: argparse.Namespace) -> None:
+    run_agent(project_args_from_repo(args))
 
 
 def collect_submission(task_id: str, workspace_name: Path, output_root: Path) -> Path | None:
@@ -303,6 +334,59 @@ def build_aide_rag(args: argparse.Namespace) -> None:
     print(f"Built AIDE Kaggle-cases RAG DB: {rag_path}")
 
 
+def bootstrap(args: argparse.Namespace) -> None:
+    py = args.python or sys.executable
+    venv_dir = Path(args.venv)
+    subprocess.run([py, "-m", "venv", str(venv_dir)], cwd=ROOT, check=True)
+    venv_python = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=ROOT, check=True)
+    subprocess.run([str(venv_python), "-m", "pip", "install", "-e", "."], cwd=ROOT, check=True)
+    subprocess.run([str(venv_python), "-m", "pip", "install", "-e", str(ROOT / "third_party" / "ds-agent")], cwd=ROOT, check=True)
+    if not (ROOT / "third_party" / "ramp-workflow").exists():
+        shutil.unpack_archive(ROOT / "third_party" / "ramp-workflow.zip", ROOT / "third_party")
+    if not (ROOT / "third_party" / "ramp-hyperopt").exists():
+        shutil.unpack_archive(ROOT / "third_party" / "ramp-hyperopt.zip", ROOT / "third_party")
+    subprocess.run(
+        [
+            str(venv_python), "-m", "pip", "install",
+            "-e", str(ROOT / "third_party" / "ramp-workflow"),
+            "-e", str(ROOT / "third_party" / "ramp-hyperopt"),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    (ROOT / "third_party" / "agent_k_python_path.txt").write_text(str(venv_python.resolve()), encoding="utf-8")
+    print(f"Bootstrap complete. Python: {venv_python}")
+
+
+def doctor(args: argparse.Namespace) -> None:
+    checks: list[tuple[str, bool, str]] = []
+    checks.append(("Python version 3.11", sys.version_info[:2] == (3, 11), sys.version.split()[0]))
+    checks.append(("OpenRouter key set", bool(os.environ.get("OPENROUTER_API_KEY")), "env OPENROUTER_API_KEY"))
+    checks.append(("Agent_K python path file", (ROOT / "third_party" / "agent_k_python_path.txt").exists(), "third_party/agent_k_python_path.txt"))
+    checks.append(("RAMP workflow extracted", (ROOT / "third_party" / "ramp-workflow").exists(), "third_party/ramp-workflow"))
+    checks.append(("RAMP hyperopt extracted", (ROOT / "third_party" / "ramp-hyperopt").exists(), "third_party/ramp-hyperopt"))
+    checks.append(("AIDE RAG DB exists", (Path(args.rag_path) / "kaggle_db" / "index.faiss").exists(), str(args.rag_path)))
+
+    import_results = []
+    for module in ["agent", "ds_agent", "hydra", "pandas", "sklearn", "rampwf", "ramphy", "langchain"]:
+        try:
+            __import__(module)
+            import_results.append((module, True))
+        except Exception as exc:
+            import_results.append((module, False))
+            checks.append((f"import {module}", False, str(exc)))
+    if all(ok for _, ok in import_results):
+        checks.append(("core imports", True, ", ".join(name for name, _ in import_results)))
+
+    for name, ok, detail in checks:
+        status = "OK" if ok else "FAIL"
+        print(f"[{status}] {name}: {detail}")
+
+    if not all(ok for _, ok, _ in checks):
+        raise SystemExit(1)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DACON wrapper for Agent_K/Auto_Dacon.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -336,6 +420,25 @@ def parse_args() -> argparse.Namespace:
     run.add_argument("--enable-agent-rag", action="store_true")
     run.add_argument("--agent-rag-path", default=None)
 
+    project_run = sub.add_parser("run-project", help="Run using a DACON project repo with auto_dacon_task.json and data/*.csv.")
+    project_run.add_argument("--project-dir", required=True)
+    project_run.add_argument("--task-id", default=None)
+    project_run.add_argument("--id-column", default=None)
+    project_run.add_argument("--target-column", default=None)
+    project_run.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT))
+    project_run.add_argument("--openrouter-api-key", default=None)
+    project_run.add_argument("--llm", default=DEFAULT_LLM)
+    project_run.add_argument("--code-llm", default=None)
+    project_run.add_argument("--total-time", type=int, default=7200)
+    project_run.add_argument("--max-time-per-submission", type=int, default=1800)
+    project_run.add_argument("--workspace-name", default=str(DEFAULT_WORKSPACE))
+    project_run.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+    project_run.add_argument("--max-cpu", type=int, default=0)
+    project_run.add_argument("--max-setups", type=int, default=3)
+    project_run.add_argument("--blend-after-n", type=int, default=3)
+    project_run.add_argument("--enable-agent-rag", action="store_true")
+    project_run.add_argument("--agent-rag-path", default=str(DEFAULT_RAG_PATH))
+
     collect = sub.add_parser("collect", help="Copy the latest generated submission to outputs/dacon/<task_id>.")
     collect.add_argument("--task-id", required=True)
     collect.add_argument("--workspace-name", default=str(DEFAULT_WORKSPACE))
@@ -351,6 +454,13 @@ def parse_args() -> argparse.Namespace:
     rag = sub.add_parser("build-aide-rag", help="Build AIDE's Kaggle-cases FAISS RAG DB from bundled cases.")
     rag.add_argument("--rag-path", default="third_party/aideml/kaggle_cases_db")
 
+    boot = sub.add_parser("bootstrap", help="Create a local venv and install Auto_Dacon dependencies.")
+    boot.add_argument("--venv", default=".venv-agentk")
+    boot.add_argument("--python", default=None)
+
+    doc = sub.add_parser("doctor", help="Check whether this local machine is ready to run Auto_Dacon.")
+    doc.add_argument("--rag-path", default=str(DEFAULT_RAG_PATH))
+
     return parser.parse_args()
 
 
@@ -360,12 +470,18 @@ def main() -> None:
         prepare_task(args)
     elif args.command == "run":
         run_agent(args)
+    elif args.command == "run-project":
+        run_project(args)
     elif args.command == "collect":
         collect_submission(args.task_id, Path(args.workspace_name), Path(args.output_root))
     elif args.command == "record-score":
         record_score(args)
     elif args.command == "build-aide-rag":
         build_aide_rag(args)
+    elif args.command == "bootstrap":
+        bootstrap(args)
+    elif args.command == "doctor":
+        doctor(args)
     else:
         raise RuntimeError(args.command)
 

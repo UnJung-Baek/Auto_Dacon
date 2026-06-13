@@ -25,6 +25,7 @@ if __name__ == "__main__":
         blend_after_n=args.blend_after_n,
         alt_raw_data_root=args.alt_raw_data_root,
         max_cpu=args.max_cpu,
+        max_setups=args.max_setups,
         attempt=args.attempt,
         attempt_spec=args.attempt_spec,
         enable_agent_rag=args.enable_agent_rag,
