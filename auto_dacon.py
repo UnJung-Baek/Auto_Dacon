@@ -283,6 +283,12 @@ def build_aide_rag(args: argparse.Namespace) -> None:
     cases_dir = aide_dir / "kaggle_cases"
     if cases_zip.exists() and not cases_dir.exists():
         shutil.unpack_archive(cases_zip, aide_dir)
+    shim_path = aide_dir / "aide" / "utils" / "langchain_huggingface.py"
+    if not shim_path.exists():
+        shim_path.write_text(
+            "from langchain_community.embeddings import HuggingFaceEmbeddings\n",
+            encoding="utf-8",
+        )
     cmd = [
         sys.executable,
         str(aide_dir / "aide" / "utils" / "db_faiss.py"),
@@ -290,7 +296,10 @@ def build_aide_rag(args: argparse.Namespace) -> None:
         "--data_path", str(cases_dir),
         "--rag_path", str(rag_path),
     ]
-    subprocess.run(cmd, cwd=ROOT, check=True)
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    subprocess.run(cmd, cwd=ROOT, env=env, check=True)
     print(f"Built AIDE Kaggle-cases RAG DB: {rag_path}")
 
 
