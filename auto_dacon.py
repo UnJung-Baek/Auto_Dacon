@@ -17,6 +17,22 @@ DEFAULT_LLM = "openrouter/qwen25_72b"
 DEFAULT_RAG_PATH = Path("C:/Auto_Dacon_RAG/kaggle_cases_db")
 
 
+def read_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            values[key] = value
+    return values
+
+
 def infer_task_id(competition_url: str) -> str:
     path_parts = [part for part in urlparse(competition_url).path.split("/") if part]
     numeric_ids = [part for part in path_parts if part.isdigit()]
@@ -264,6 +280,11 @@ def run_agent(args: argparse.Namespace) -> None:
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    for key, value in read_env_file(ROOT / ".env").items():
+        env.setdefault(key, value)
+    if args.project_dir:
+        for key, value in read_env_file(Path(args.project_dir) / ".env").items():
+            env.setdefault(key, value)
     ramp_preset = env.get("AUTO_DACON_RAMP_PRESET", "agentk").lower()
     if ramp_preset not in {"agentk", "windows_fast", "fast", "local_fast"}:
         raise ValueError("AUTO_DACON_RAMP_PRESET must be one of: agentk, windows_fast, fast, local_fast")
