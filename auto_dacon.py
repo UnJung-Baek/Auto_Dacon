@@ -61,7 +61,25 @@ def project_args_from_repo(args: argparse.Namespace) -> argparse.Namespace:
 
 def copy_csv(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() and dst.stat().st_size == src.stat().st_size:
+        return
+    if dst.exists():
+        try:
+            dst.chmod(0o666)
+        except OSError:
+            pass
+        dst.unlink()
     shutil.copy2(src, dst)
+
+
+def write_text_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            path.chmod(0o666)
+        except OSError:
+            pass
+    path.write_text(content, encoding="utf-8")
 
 
 def profile_csv(path: Path, nrows: int = 5000) -> dict:
@@ -165,9 +183,9 @@ def prepare_task(args: argparse.Namespace) -> Path:
         target_column=target_column,
         id_column=id_column,
     )
-    (task_dir / "raw_task_description.txt").write_text(raw_task, encoding="utf-8")
-    (task_dir / "raw_data_description.txt").write_text(raw_data, encoding="utf-8")
-    (task_dir / "raw_metric_description.txt").write_text(raw_metric, encoding="utf-8")
+    write_text_file(task_dir / "raw_task_description.txt", raw_task)
+    write_text_file(task_dir / "raw_data_description.txt", raw_data)
+    write_text_file(task_dir / "raw_metric_description.txt", raw_metric)
 
     metadata = {
         "task_id": task_id,
@@ -181,7 +199,7 @@ def prepare_task(args: argparse.Namespace) -> Path:
         "test_profile": test_profile,
         "sample_submission_profile": sample_profile,
     }
-    (task_dir / "auto_dacon_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    write_text_file(task_dir / "auto_dacon_metadata.json", json.dumps(metadata, indent=2))
 
     if args.project_dir:
         write_project_scaffold(Path(args.project_dir), metadata)
@@ -196,17 +214,17 @@ def write_project_scaffold(project_dir: Path, metadata: dict) -> None:
     (project_dir / "notes").mkdir(exist_ok=True)
     gitignore = project_dir / ".gitignore"
     if not gitignore.exists():
-        gitignore.write_text("data/\noutputs/*.csv\n.env\n__pycache__/\n", encoding="utf-8")
-    (project_dir / "auto_dacon_task.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        write_text_file(gitignore, "data/\noutputs/*.csv\n.env\n__pycache__/\n")
+    write_text_file(project_dir / "auto_dacon_task.json", json.dumps(metadata, indent=2))
     readme = project_dir / "README.md"
     if not readme.exists():
-        readme.write_text(
+        write_text_file(
+            readme,
             f"# {metadata['task_id']}\n\n"
             "This repository stores notes and outputs for a DACON competition run driven by Auto_Dacon.\n\n"
             f"- Competition: {metadata['competition_url']}\n"
             f"- Metric: {metadata['metric']}\n"
             f"- Target: `{metadata['target_column']}`\n",
-            encoding="utf-8",
         )
 
 
@@ -334,6 +352,57 @@ def build_aide_rag(args: argparse.Namespace) -> None:
     print(f"Built AIDE Kaggle-cases RAG DB: {rag_path}")
 
 
+def patch_ramp_hyperopt_for_windows() -> None:
+    """Apply small local-portability patches after extracting Agent_K archives."""
+    ramp_root = ROOT / "third_party" / "ramp-hyperopt"
+    actions_path = ramp_root / "ramphy" / "actions.py"
+    if actions_path.exists():
+        text = actions_path.read_text(encoding="utf-8")
+        old = (
+            "        f_name = actions_dir / str(ramp_action_object.start_time)\n"
+            "        ramp_action_object.save(f_name)\n"
+        )
+        new = (
+            "        safe_start_time = ramp_action_object.start_time.strftime(\"%Y%m%dT%H%M%S.%f\")\n"
+            "        f_name = actions_dir / safe_start_time\n"
+            "        ramp_action_object.save(f_name)\n"
+        )
+        if old in text and "safe_start_time = ramp_action_object.start_time.strftime" not in text:
+            actions_path.write_text(text.replace(old, new), encoding="utf-8")
+
+    setup_path = ramp_root / "ramphy" / "ramp_setup" / "scripts" / "setup.py"
+    if setup_path.exists():
+        text = setup_path.read_text(encoding="utf-8")
+        if "import os" not in text.splitlines()[:5]:
+            text = text.replace("import json\n", "import json\nimport os\n", 1)
+        old = (
+            "    rh.actions.train(\n"
+            "        ramp_kit_dir = ramp_kit_dir,\n"
+            "        submission = 'starting_kit',\n"
+            "#        fold_idxs = range(900, 903),\n"
+            "        fold_idxs = range(3),\n"
+            "        force_retrain = True,\n"
+            "    )\n"
+        )
+        new = (
+            "    # Local DACON runs use this command as a kit materialization step before the\n"
+            "    # actual hyperopt race. The original Agent_K path also trains the starting\n"
+            "    # kit here, which can hang or consume a large slice of the time budget on\n"
+            "    # Windows with wide tabular datasets.\n"
+            "    if str(os.environ.get(\"AUTO_DACON_SKIP_RAMP_SETUP_TRAIN\", \"1\")).lower() not in {\"1\", \"true\", \"yes\"}:\n"
+            "        rh.actions.train(\n"
+            "            ramp_kit_dir = ramp_kit_dir,\n"
+            "            submission = 'starting_kit',\n"
+            "#            fold_idxs = range(900, 903),\n"
+            "            fold_idxs = range(3),\n"
+            "            force_retrain = True,\n"
+            "        )\n"
+        )
+        if old in text and "AUTO_DACON_SKIP_RAMP_SETUP_TRAIN" not in text:
+            text = text.replace(old, new)
+        setup_path.write_text(text, encoding="utf-8")
+
+
 def bootstrap(args: argparse.Namespace) -> None:
     py = args.python or sys.executable
     venv_dir = Path(args.venv)
@@ -341,11 +410,27 @@ def bootstrap(args: argparse.Namespace) -> None:
     venv_python = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=ROOT, check=True)
     subprocess.run([str(venv_python), "-m", "pip", "install", "-e", "."], cwd=ROOT, check=True)
+    subprocess.run(
+        [
+            str(venv_python), "-m", "pip", "install",
+            "py7zr",
+            "rarfile",
+            "jsonlines",
+            "textdistance",
+            "gensim==4.3.3",
+            "sentencepiece==0.2.0",
+            "nvidia-ml-py",
+            "scikit-posthocs==0.11.4",
+        ],
+        cwd=ROOT,
+        check=True,
+    )
     subprocess.run([str(venv_python), "-m", "pip", "install", "-e", str(ROOT / "third_party" / "ds-agent")], cwd=ROOT, check=True)
     if not (ROOT / "third_party" / "ramp-workflow").exists():
         shutil.unpack_archive(ROOT / "third_party" / "ramp-workflow.zip", ROOT / "third_party")
     if not (ROOT / "third_party" / "ramp-hyperopt").exists():
         shutil.unpack_archive(ROOT / "third_party" / "ramp-hyperopt.zip", ROOT / "third_party")
+    patch_ramp_hyperopt_for_windows()
     subprocess.run(
         [
             str(venv_python), "-m", "pip", "install",
@@ -369,7 +454,7 @@ def doctor(args: argparse.Namespace) -> None:
     checks.append(("AIDE RAG DB exists", (Path(args.rag_path) / "kaggle_db" / "index.faiss").exists(), str(args.rag_path)))
 
     import_results = []
-    for module in ["agent", "ds_agent", "hydra", "pandas", "sklearn", "rampwf", "ramphy", "langchain"]:
+    for module in ["agent", "ds_agent", "hydra", "pandas", "sklearn", "rampwf", "ramphy", "langchain", "py7zr", "rarfile"]:
         try:
             __import__(module)
             import_results.append((module, True))

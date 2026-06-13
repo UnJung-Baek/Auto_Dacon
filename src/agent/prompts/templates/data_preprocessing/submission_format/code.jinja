@@ -20,6 +20,10 @@ The target column name(s): {{ raw_target_column_names }}
 ### Objective
 Your goal is to write the submission format function that takes as input a DataFrame containing target predictions, and format it to follow the submission file format.
 **Important:** Use the column names in the sample submission table as a reference.
+For DACON-style sample submissions, the sample submission often already contains placeholder target columns filled with zeros. If you merge predictions with the sample submission, first keep only the ID/order columns from the sample submission or explicitly overwrite the placeholder target columns. Do not let pandas create `_x`/`_y` suffixed target columns.
+If the prediction column in `input_df` is named like `<target>_regression` or `<target>_classification`, rename it back to the sample submission target name `<target>` before returning the DataFrame.
+The returned DataFrame must contain exactly the sample submission columns, in the same order.
+During setup, the unit test may pass training predictions with TRAIN IDs while `sample_submission.csv` contains TEST IDs. Therefore, do not merge, join, filter, or reindex `input_df` against `sample_submission.csv`. Preserve the row count and row order of `input_df`; use the sample submission only as a reference for the final column names and order.
 
 {% if df_inv_transform_view_tab is not none %}
 #### View of the first few rows of the input DataFrame for tabular targets:
@@ -104,6 +108,8 @@ Write the code in order to create this function, do not change the signature, in
 {% endif -%}
 
 Do not re-set index of the dataframe to create a new id column, instead use the columns present in the dataframe already.
+Do not return any helper columns such as `id`, `<target>_regression`, `<target>_classification`, or pandas merge suffix columns.
+Do not merge with `sample_submission.csv`; if you read it, read it only to learn the required column names.
 
 Your response should be the full function definition (with adequate imports) in the format:
 ```python

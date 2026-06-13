@@ -307,7 +307,7 @@ class DataPreProcessing(Task):
                 raise SubmissionFormatError(f"All attempts to create submission formats have failed.")
             elif (self.env.plan.submission_format.is_forced
                     and os.path.exists(os.path.join(self.workspace_path, FileMap.SUBMISSION_FORMAT_ALT_SCRIPT.value))):
-                os.rename(
+                os.replace(
                     os.path.join(self.workspace_path, FileMap.SUBMISSION_FORMAT_ALT_SCRIPT.value),
                     os.path.join(self.workspace_path, FileMap.SUBMISSION_FORMAT_SCRIPT.value)
                 )

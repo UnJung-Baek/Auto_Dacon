@@ -137,8 +137,18 @@ def undecorated_main(cfg: DictConfig) -> None:
 def main(cfg: DictConfig) -> None:
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
+    print("[Auto_Dacon] Hydra main entered.", flush=True)
     utils.extras(cfg)
-    OmegaConf.resolve(cfg)
+    print("[Auto_Dacon] Extras complete.", flush=True)
+    skip_global_resolve = os.getenv("AUTO_DACON_SKIP_GLOBAL_RESOLVE")
+    if skip_global_resolve is None:
+        skip_global_resolve = "1" if os.name == "nt" else "0"
+    if skip_global_resolve.lower() in {"1", "true", "yes"}:
+        print("[Auto_Dacon] Skipping global OmegaConf.resolve; values will resolve lazily.", flush=True)
+    else:
+        print("[Auto_Dacon] Resolving full Hydra config.", flush=True)
+        OmegaConf.resolve(cfg)
+    print("[Auto_Dacon] Entering agent main.", flush=True)
     undecorated_main(cfg)
 
 

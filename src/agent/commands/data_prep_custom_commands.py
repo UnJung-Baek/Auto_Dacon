@@ -1433,6 +1433,17 @@ class SummarizeRawDescription(HumanTakeoverCommand):
         with open(os.path.join(self.workspace_path, "metadata/submission_format.txt"), 'w') as f:
             f.writelines(summarized_submission_format)
 
+        def _compact_for_followup(text: str, max_chars: int = 6000) -> str:
+            if text is None or len(text) <= max_chars:
+                return text
+            return (
+                text[:max_chars]
+                + "\n\n[Auto_Dacon compacted this long DACON table description for follow-up LLM prompts.]"
+            )
+
+        compact_summarized_data = _compact_for_followup(summarized_data, 7000)
+        compact_raw_table_info = _compact_for_followup(raw_table_info, 6000)
+
         # ------------------------------------------------------------
         # ---------- summarize modality maps for the inputs ----------
         # ------------------------------------------------------------
@@ -1440,13 +1451,13 @@ class SummarizeRawDescription(HumanTakeoverCommand):
             agent=agent,
             ask_template=self.required_prompt_templates["input_modality_maps_template"],
             prompt_kwargs={
-                "summarized_data_description": summarized_data,
+                "summarized_data_description": compact_summarized_data,
                 "fetched_raw_data": agent.memory.retrieve({MemKey.FETCHED_RAW_DATA: 1.0}),
                 "has_sample_submission": agent.memory.retrieve({MemKey.HAS_SAMPLE_SUBMISSION: 1.0}),
                 "raw_id_column_name": agent.memory.retrieve({MemKey.RAW_ID_COLUMN_NAME: 1.0}),
                 "raw_target_column_names": agent.memory.retrieve({MemKey.RAW_TARGETS_COLUMN_NAMES: 1.0}),
                 "sample_submission_head": agent.memory.retrieve({MemKey.SAMPLE_SUBMISSION_HEAD: 1.0}),
-                "raw_table_info": raw_table_info,
+                "raw_table_info": compact_raw_table_info,
                 "raw_data_dir": self.raw_data_dir,
                 "summarized_task_description": summarized_task
             }
@@ -1465,13 +1476,13 @@ class SummarizeRawDescription(HumanTakeoverCommand):
             agent=agent,
             ask_template=self.required_prompt_templates["target_modality_maps_template"],
             prompt_kwargs={
-                "summarized_data_description": summarized_data,
+                "summarized_data_description": compact_summarized_data,
                 "fetched_raw_data": agent.memory.retrieve({MemKey.FETCHED_RAW_DATA: 1.0}),
                 "has_sample_submission": agent.memory.retrieve({MemKey.HAS_SAMPLE_SUBMISSION: 1.0}),
                 "raw_id_column_name": agent.memory.retrieve({MemKey.RAW_ID_COLUMN_NAME: 1.0}),
                 "raw_target_column_names": agent.memory.retrieve({MemKey.RAW_TARGETS_COLUMN_NAMES: 1.0}),
                 "sample_submission_head": agent.memory.retrieve({MemKey.SAMPLE_SUBMISSION_HEAD: 1.0}),
-                "raw_table_info": raw_table_info,
+                "raw_table_info": compact_raw_table_info,
                 "raw_data_dir": self.raw_data_dir
             }
         )
@@ -1489,7 +1500,7 @@ class SummarizeRawDescription(HumanTakeoverCommand):
             agent=agent,
             ask_template=self.required_prompt_templates["modality_transforms_template"],
             prompt_kwargs={
-                "summarized_data_description": summarized_data,
+                "summarized_data_description": compact_summarized_data,
                 "summarized_submission_format": summarized_submission_format,
                 "summarized_targets_modality_maps": summarized_targets_modality_maps,
                 "fetched_raw_data": agent.memory.retrieve({MemKey.FETCHED_RAW_DATA: 1.0}),
@@ -1497,7 +1508,7 @@ class SummarizeRawDescription(HumanTakeoverCommand):
                 "raw_id_column_name": agent.memory.retrieve({MemKey.RAW_ID_COLUMN_NAME: 1.0}),
                 "raw_target_column_names": agent.memory.retrieve({MemKey.RAW_TARGETS_COLUMN_NAMES: 1.0}),
                 "sample_submission_head": agent.memory.retrieve({MemKey.SAMPLE_SUBMISSION_HEAD: 1.0}),
-                "raw_table_info": raw_table_info,
+                "raw_table_info": compact_raw_table_info,
                 "raw_data_dir": self.raw_data_dir
             }
         )

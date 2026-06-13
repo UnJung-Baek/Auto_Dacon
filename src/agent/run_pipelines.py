@@ -36,7 +36,11 @@ def check_for_success(run_dir: Path, match_patterns: list[str]) -> bool:
     return any_ramp_files_found
 
 
-def is_setup_pipeline_successful(setup_dir: Path, is_tabular: bool) -> bool:
+def is_setup_pipeline_successful(
+        setup_dir: Path,
+        is_tabular: bool,
+        use_final_unit_test: bool = True,
+) -> bool:
     """
     Checks whether the final unit test passed and the submission.csv file was created.
 
@@ -47,6 +51,17 @@ def is_setup_pipeline_successful(setup_dir: Path, is_tabular: bool) -> bool:
     Returns:
         bool: Status of the setup pipeline.
     """
+    if not use_final_unit_test:
+        required_setup_files = [
+            "train_tab_input_map.csv",
+            "train_tab_target_map.csv",
+            "test_tab_input_map.csv",
+            "code_submission_format.py",
+            "metadata/metric.json",
+            "metadata/column_types.json",
+        ]
+        return all((setup_dir / filename).exists() for filename in required_setup_files)
+
     ramp_pipeline_files = [
         "./final_unit_test_vtest_n0/submissions/starting_kit/training_output/bagged_scores.csv",
         "./final_unit_test_vtest_n0/submissions/starting_kit/training_output/submission_bagged_test.csv",
@@ -168,6 +183,7 @@ def run_setup_pipeline(
     setup_version = 0
     is_setup_successful = False
     setup_dir = exp_dir / f"seed_{setup_version}"
+    chat_completion_retrial_time = 0
 
     while not is_setup_successful and execution_time < total_time and setup_version < max_setups:
         setup_dir = exp_dir / f"seed_{setup_version}"
@@ -178,12 +194,13 @@ def run_setup_pipeline(
         setup_dir.mkdir(parents=True, exist_ok=True)
 
         setup_command = (
-            f"HYDRA_FULL_ERROR=1 python ./src/agent/start.py "
+            f"HYDRA_FULL_ERROR=1 \"{sys.executable}\" ./src/agent/start.py "
             f"--config-name think_and_code_llm_sa_eval "
             f"task={prep_task} method={prep_method} "
             f"max_episodes=1 "
             f"llm@agent.llm={llm} "
             f"llm@agent.code_llm={code_llm} "
+            f"extras.print_config=False "
             f"task.task_id={task_id} "
             f"task.workspace_path={setup_dir} "
             f"task.use_final_unit_test={use_final_unit_test} "
@@ -222,7 +239,11 @@ def run_setup_pipeline(
             chat_completion_retrial_time = 0
 
         print(f"Spent {chat_completion_retrial_time:.0f} seconds trying to do chat completion without success.")
-        if is_setup_pipeline_successful(setup_dir, is_tabular=is_tabular):
+        if is_setup_pipeline_successful(
+                setup_dir,
+                is_tabular=is_tabular,
+                use_final_unit_test=use_final_unit_test,
+        ):
             print("Setup completed successfully.", flush=True)
             is_setup_successful = True
             with open(setup_dir / "setup_done.txt", 'w') as f:
@@ -302,9 +323,10 @@ def run_ds_main_pipeline(
         f"TTA=1 "
         f"MAX_TIME_PER_SUBMISSION={max_time_per_submission} "
         f"USE_CI_HANDLING={ci_env_val} "
-        f"python ./src/agent/start.py "
+        f"\"{sys.executable}\" ./src/agent/start.py "
         f"task=data_science_interact "
         f"llm@agent.llm={llm} "
+        f"extras.print_config=False "
         f"method={ds_method} "
         f"max_episodes=1 "
         f"task.task_id={task_id} "
@@ -357,15 +379,19 @@ def run_ds_tabular_ramp(
     time_for_main_pipeline = time_for_main_pipeline / 3600
     name_version = llm.split('/')[-1]
     agent_root = "."
+    scripts_dir = Path(sys.executable).parent
+    exe_suffix = ".exe" if os.name == "nt" else ""
+    ramp_setup_exe = scripts_dir / f"ramp-setup{exe_suffix}"
+    ramp_hyperopt_race_exe = scripts_dir / f"ramp-hyperopt-race{exe_suffix}"
     cmd_save_path = setup_dir / "main_pipeline_command.txt"
     ramp_pre_kit_command = (
-        f"python {agent_root}/third_party/data_science/pre-kit-script.py "
+        f"\"{sys.executable}\" {agent_root}/third_party/data_science/pre-kit-script.py "
         f"--root_folder {setup_dir} "
         f"--challenge_name {task_id} "
         f"--output_path {setup_dir}/ramp_kit"
     )
     ramp_setup_command = (
-        f"ramp-setup --ramp-kit ramp_kit "
+        f"\"{ramp_setup_exe}\" --ramp-kit ramp_kit "
         f"--version {name_version} "
         f"--number {setup_version} "
         f"--kit-root {setup_dir} "
@@ -383,16 +409,25 @@ def run_ds_tabular_ramp(
     elapsed_secs = time.time() - start_time
     elapsed_hours = elapsed_secs / 3600
     remaining_hours = max(time_for_main_pipeline - elapsed_hours, 0)
+    default_predictors = "lgbm" if os.name == "nt" else "lgbm,xgboost,catboost"
+    base_predictors = [
+        predictor.strip()
+        for predictor in os.environ.get("AUTO_DACON_BASE_PREDICTORS", default_predictors).split(",")
+        if predictor.strip()
+    ]
+    base_predictor_args = " ".join(f"--base-predictors {predictor}" for predictor in base_predictors)
+    n_folds_final_blend = int(os.environ.get("AUTO_DACON_N_FOLDS_FINAL_BLEND", "5" if os.name == "nt" else "30"))
     ramp_run_hyperopt_race_command = (
-        f"ramp-hyperopt-race --ramp-kit ramp_kit "
+        f"\"{ramp_hyperopt_race_exe}\" --ramp-kit ramp_kit "
         f"--version {name_version} "
         f"--number {setup_version} "
         f"--kit-root {setup_dir} "
         f"--n-rounds 1000 "
         f"--n-trials-per-round 1 "
-        f"--n-folds-final-blend 30 "
+        f"--n-folds-final-blend {n_folds_final_blend} "
         f"--max-time {remaining_hours} "
         f"--n-cpu-per-run {max_cpu} "
+        f"{base_predictor_args} "
     )
     with open(cmd_save_path, 'a') as f:
         f.write(ramp_run_hyperopt_race_command + "\n\n")
@@ -654,6 +689,9 @@ def main(
     """
     debug_mode = os.environ.get("AGENT_DEBUG", False)
     allow_default_response = os.environ.get("ALLOW_DEFAULT_RESPONSE", False)
+    default_final_test = "0" if is_local_task else "1"
+    use_final_unit_test = os.environ.get("AUTO_DACON_USE_FINAL_UNIT_TEST", default_final_test).lower()
+    use_final_unit_test = use_final_unit_test in {"1", "true", "yes", "on"}
 
     run_status = run_setup_and_main_pipline(
         workspace_name=workspace_name,
@@ -673,6 +711,7 @@ def main(
         setup_default_response_path=None,
         main_pipeline_default_response_path=None,
         max_cpu=max_cpu,
+        use_final_unit_test=use_final_unit_test,
         terminate_after_training=terminate_after_training,
         run_setup_only=run_setup_only,
         attempt=attempt,

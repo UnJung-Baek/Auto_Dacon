@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess as sp
 import tarfile
 import time
@@ -161,6 +162,30 @@ class FetchTool(Tool):
         self.detected_file = None
         self.sample_submission_file = sample_submission_file
 
+    def _mirror_local_raw_data_to_workspace(self) -> None:
+        raw_data_path = Path(self.raw_data_dir)
+        if not raw_data_path.exists():
+            return
+
+        workspace_path = Path(self.workspace_path)
+        if raw_data_path.is_absolute():
+            mirror_path = workspace_path / "data" / raw_data_path.name
+        else:
+            mirror_path = workspace_path / raw_data_path
+        mirror_path.mkdir(parents=True, exist_ok=True)
+
+        for source in raw_data_path.iterdir():
+            if not source.is_file():
+                continue
+            destination = mirror_path / source.name
+            if destination.exists() and destination.stat().st_size == source.stat().st_size:
+                continue
+            destination.unlink(missing_ok=True)
+            try:
+                os.link(source, destination)
+            except OSError:
+                shutil.copy2(source, destination)
+
     def __call__(self, agent_input: str) -> dict[MemKey, str | bool]:
         """
         Uses Kaggle api cli to fetch a competition given an url.
@@ -180,6 +205,8 @@ class FetchTool(Tool):
             task_id=os.path.basename(self.task_url),
             sample_submission_file=self.sample_submission_file,
         )
+        if self.is_local_task:
+            self._mirror_local_raw_data_to_workspace()
         # get metadata by scraping and summarize it
         if self.is_local_task:
             with open(Path(self.raw_data_dir) / "raw_data_description.txt", 'r') as f:
@@ -299,7 +326,13 @@ class FetchTool(Tool):
             if detected_file == DETECT_SAMPLE_SUBMISSION_WITH_LLM_FLAG:
                 return detected_file, False, '', '', ''
 
-        if sample_submission_file is not None and sample_submission_file != detected_file:
+        raw_data_path = Path(raw_data_dir)
+        detected_path = Path(detected_file)
+        if not detected_path.is_absolute() and not detected_path.exists():
+            detected_path = raw_data_path / detected_path
+        detected_name = detected_path.name
+
+        if sample_submission_file is not None and Path(sample_submission_file).name != detected_name:
             raise SampleSubmissionIdentificationError(
                 f"Expected sample submission file {sample_submission_file} but got {detected_file}"
             )
@@ -308,15 +341,17 @@ class FetchTool(Tool):
         words_re = re.compile("|".join(matched_words_sample_submissions))
 
         # copy sample submission into workspace and save id name and target names to JSON file
-        if words_re.search(detected_file.lower()):
-            os.system(f"cp {os.path.join(raw_data_dir, detected_file)} {workspace_path}/data/sample_submission.csv")
-            print(f"Copied {detected_file} to workspace {workspace_path}/data/sample_submission.csv")
+        if words_re.search(detected_name.lower()):
+            workspace_sample_path = Path(workspace_path) / "data" / "sample_submission.csv"
+            workspace_sample_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(detected_path, workspace_sample_path)
+            print(f"Copied {detected_path} to workspace {workspace_sample_path}")
 
-            df = pd.read_csv(os.path.join(raw_data_dir, detected_file))
+            df = pd.read_csv(detected_path)
             id_name, target_names = str(df.columns[0]), list(df.columns[1:])
 
             _table_view = FetchTool.df_formated_head_view(
-                input_df_path=os.path.join(raw_data_dir, detected_file))
+                input_df_path=str(detected_path))
 
             json.dump(
                 obj={"id_name": id_name, "target_names": target_names},
@@ -1228,9 +1263,13 @@ class FetchTool(Tool):
                 s = buffer.getvalue()
                 _table_info = f"{os.path.join(download_dir, file)}\n" + s
                 for c in table.columns[1:]:
-                    if (table[c].dtype == 'object' and isinstance(table[c].iloc[0], str)
-                            and len(table[c].unique().tolist()) < 200):
-                        _table_info += f"\n- column {c} contains strings with values in {table[c].unique().tolist()}"
+                    if table[c].dtype == 'object' and len(table[c]) > 0:
+                        string_values = table[c].dropna().map(
+                            lambda value: value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+                        )
+                        unique_values = string_values.unique().tolist()
+                        if len(unique_values) < 200:
+                            _table_info += f"\n- column {c} contains strings with values in {unique_values}"
                 raw_table_info += "\n\n" + _table_info
         with open(raw_table_info_path, "w") as f:
             f.write(raw_table_info)

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 from typing import Sequence
 
 import rich
@@ -15,6 +16,15 @@ from agent.utils import pylogger
 log = pylogger.get_pylogger(__name__)
 
 DEFAULT_PRINT_ORDER = ("model", "environment", "logger", "paths", "extras")
+
+_SECRET_FIELD_RE = re.compile(
+    r"^(\s*(?:api[_-]?key|secret|token|password|authorization)\s*:\s*).*$",
+    re.IGNORECASE,
+)
+
+
+def _redact_secrets(text: str) -> str:
+    return "\n".join(_SECRET_FIELD_RE.sub(r"\1***REDACTED***", line) for line in text.splitlines())
 
 
 def print_config_tree(cfg: DictConfig, print_order: Sequence[str] = DEFAULT_PRINT_ORDER, resolve: bool = False,
@@ -54,6 +64,7 @@ def print_config_tree(cfg: DictConfig, print_order: Sequence[str] = DEFAULT_PRIN
         else:
             branch_content = str(config_group)
 
+        branch_content = _redact_secrets(branch_content)
         branch.add(rich.syntax.Syntax(branch_content, "yaml"))
 
     # print config tree
