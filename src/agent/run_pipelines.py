@@ -409,14 +409,24 @@ def run_ds_tabular_ramp(
     elapsed_secs = time.time() - start_time
     elapsed_hours = elapsed_secs / 3600
     remaining_hours = max(time_for_main_pipeline - elapsed_hours, 0)
-    default_predictors = "lgbm" if os.name == "nt" else "lgbm,xgboost,catboost"
+    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET")
+    if ramp_preset is None:
+        ramp_preset = "windows_fast" if os.name == "nt" else "agentk"
+    ramp_preset = ramp_preset.lower()
+    if ramp_preset not in {"agentk", "windows_fast", "fast", "local_fast"}:
+        raise ValueError(
+            "AUTO_DACON_RAMP_PRESET must be one of: agentk, windows_fast, fast, local_fast"
+        )
+    use_fast_ramp_defaults = ramp_preset in {"windows_fast", "fast", "local_fast"}
+
+    default_predictors = "lgbm" if use_fast_ramp_defaults else "lgbm,xgboost,catboost"
     base_predictors = [
         predictor.strip()
         for predictor in os.environ.get("AUTO_DACON_BASE_PREDICTORS", default_predictors).split(",")
         if predictor.strip()
     ]
     base_predictor_args = " ".join(f"--base-predictors {predictor}" for predictor in base_predictors)
-    default_preprocessors = "drop_id,base_columnwise,rm_constant_col" if os.name == "nt" else ""
+    default_preprocessors = "drop_id,base_columnwise,rm_constant_col" if use_fast_ramp_defaults else ""
     data_preprocessors = [
         preprocessor.strip()
         for preprocessor in os.environ.get("AUTO_DACON_DATA_PREPROCESSORS", default_preprocessors).split(",")
@@ -425,8 +435,8 @@ def run_ds_tabular_ramp(
     data_preprocessor_args = " ".join(f"--data-preprocessors {preprocessor}" for preprocessor in data_preprocessors)
     n_rounds = int(os.environ.get("AUTO_DACON_N_ROUNDS", "1000"))
     n_trials_per_round = int(os.environ.get("AUTO_DACON_N_TRIALS_PER_ROUND", "1"))
-    n_folds_hyperopt = int(os.environ.get("AUTO_DACON_N_FOLDS_HYPEROPT", "1" if os.name == "nt" else "3"))
-    n_folds_final_blend = int(os.environ.get("AUTO_DACON_N_FOLDS_FINAL_BLEND", "5" if os.name == "nt" else "30"))
+    n_folds_hyperopt = int(os.environ.get("AUTO_DACON_N_FOLDS_HYPEROPT", "1" if use_fast_ramp_defaults else "3"))
+    n_folds_final_blend = int(os.environ.get("AUTO_DACON_N_FOLDS_FINAL_BLEND", "5" if use_fast_ramp_defaults else "30"))
     ramp_run_hyperopt_race_command = (
         f"\"{ramp_hyperopt_race_exe}\" --ramp-kit ramp_kit "
         f"--version {name_version} "
@@ -701,7 +711,10 @@ def main(
     """
     debug_mode = os.environ.get("AGENT_DEBUG", False)
     allow_default_response = os.environ.get("ALLOW_DEFAULT_RESPONSE", False)
-    default_final_test = "0" if is_local_task else "1"
+    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET")
+    if ramp_preset is None:
+        ramp_preset = "windows_fast" if os.name == "nt" else "agentk"
+    default_final_test = "0" if is_local_task and ramp_preset.lower() != "agentk" else "1"
     use_final_unit_test = os.environ.get("AUTO_DACON_USE_FINAL_UNIT_TEST", default_final_test).lower()
     use_final_unit_test = use_final_unit_test in {"1", "true", "yes", "on"}
 

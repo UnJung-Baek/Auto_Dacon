@@ -48,20 +48,38 @@ The competition repo should contain:
 Full Agent_K/Auto_Dacon run:
 
 ```powershell
+$env:AUTO_DACON_RAMP_PRESET="agentk"
 .\.venv-agentk\Scripts\python.exe auto_dacon.py run-project `
   --project-dir "C:\path\to\Smart-Warehouse-Shipment-Delay-Prediction" `
   --total-time 7200 `
   --max-cpu 4
 ```
 
-Windows starts conservatively so the Agent_K/RAMP baseline can finish on local
-machines. You can expand the search later:
+On Windows, Auto_Dacon defaults to `AUTO_DACON_RAMP_PRESET=windows_fast` when
+the preset is not set. That mode keeps the same Agent_K flow, but uses a smaller
+RAMP search so local runs are more likely to finish. Set `agentk` when you want
+Agent_K-like defaults:
+
+```powershell
+$env:AUTO_DACON_RAMP_PRESET="agentk"
+```
+
+You can also override individual RAMP settings:
 
 ```powershell
 $env:AUTO_DACON_BASE_PREDICTORS="lgbm,xgboost,catboost"
 $env:AUTO_DACON_N_FOLDS_HYPEROPT="3"
-$env:AUTO_DACON_N_FOLDS_FINAL_BLEND="5"
+$env:AUTO_DACON_N_FOLDS_FINAL_BLEND="30"
 $env:AUTO_DACON_DATA_PREPROCESSORS="drop_id,drop_columns,base_columnwise,col_in_train_only,rm_constant_col"
+```
+
+Agent_K setup RAG can be enabled after the local pipeline is stable:
+
+```powershell
+.\.venv-agentk\Scripts\python.exe auto_dacon.py run-project `
+  --project-dir "C:\path\to\Smart-Warehouse-Shipment-Delay-Prediction" `
+  --enable-agent-rag `
+  --agent-rag-path "C:\Auto_Dacon_RAG\kaggle_cases_db"
 ```
 
 Portable fallback baseline run:
