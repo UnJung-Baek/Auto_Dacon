@@ -72,20 +72,10 @@ def main_pipeline(args):
 
     run_command(post_scaffold_command)
 
-    if args.is_local_task:
-        return
-
-    submission_command = (
-        f"python {root}/third_party/data_science/kaggle_submission/submit_kaggle.py "
-        f"--task_id {args.task_id} "
-        f"--workspace_root_agent {exp_dir.parent}/ "
-        f"--workspace_root_react {post_scaffold_workspace} "
-        f"--message {args.submission_message} "
-        f"--leaderboards_dir {args.leaderboards_dir} "
-        f"--team_name {args.team_name} "
+    print(
+        "[Auto_Dacon] ReAct finished. Auto_Dacon never auto-submits to Kaggle/DACON; "
+        f"collect the candidate CSV files from: {post_scaffold_workspace}"
     )
-
-    run_command(submission_command)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ its own repository with `auto_dacon_task.json` and `data/train.csv`, `data/test.
 ```powershell
 git clone https://github.com/UnJung-Baek/Auto_Dacon.git
 cd Auto_Dacon
+$env:AUTO_DACON_HOME=(Get-Location).Path
 ```
 
 ## 2. Bootstrap
@@ -38,14 +39,20 @@ $env:OPENROUTER_API_KEY="..."
 
 ## 5. Run a competition project repo
 
+Run this from the competition repository:
+
 ```powershell
-.\.venv-agentk\Scripts\python.exe auto_dacon.py run-project `
-  --project-dir "C:\path\to\Smart-Warehouse-Shipment-Delay-Prediction" `
-  --workspace-name "C:\Auto_Dacon_Workspace" `
-  --output-root "C:\Auto_Dacon_Outputs" `
+cd "C:\path\to\your-dacon-project"
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" run-project `
+  --project-dir . `
   --enable-agent-rag `
   --agent-rag-path "C:\Auto_Dacon_RAG\kaggle_cases_db"
 ```
 
-The final submission is copied to `C:\Auto_Dacon_Outputs\<task_id>\submission.csv`
-when a candidate submission is produced.
+Runtime files are written under `<competition_repo>\.auto_dacon_runtime\`, and
+submission archives are copied to the competition repo outputs directory:
+
+- Agent_K/RAMP runs: `<competition_repo>\outputs\submission_baseline.csv`,
+  then `submission_baseline2.csv`, `submission_baseline3.csv`, ...
+- Post-scaffold/ReAct runs: `<competition_repo>\outputs\submission_react1.csv`,
+  then `submission_react2.csv`, `submission_react3.csv`, ...

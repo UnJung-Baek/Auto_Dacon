@@ -55,6 +55,7 @@ pip-delete-this-directory.txt
 htmlcov/
 .tox/
 .nox/
+.venv-react/
 .coverage
 .coverage.*
 .cache
@@ -164,6 +165,11 @@ configs/local/default.yaml
 /data/
 /logs/
 .env
+/outputs/
+/cache/
+/catboost_info/
+/experiences/dacon/
+/data/dacon/
 
 # Aim logging
 .aim

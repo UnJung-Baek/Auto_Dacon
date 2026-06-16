@@ -7,6 +7,7 @@ import shutil
 import string
 import subprocess
 import subprocess as sp
+import sys
 import time
 import warnings
 from collections import Counter
@@ -35,10 +36,10 @@ def extract_python(raw_response: str) -> str:
     if "```python" in raw_response and len(re.findall("```", raw_response)):
         raw_response += "\n```"  # handle missing final "```"
 
-    python_elements = re.findall("```python([\s\S]*?)```", raw_response)
+    python_elements = re.findall(r"```python([\s\S]*?)```", raw_response)
     if len(python_elements) == 0:
         try:
-            python_elements = re.findall("```([\s\S]*?)```", raw_response)
+            python_elements = re.findall(r"```([\s\S]*?)```", raw_response)
             assert len(python_elements) == 1
             return python_elements[0].replace('python', '')
         except Exception:
@@ -62,7 +63,7 @@ def extract_python(raw_response: str) -> str:
 
 def extract_json(raw_response: str) -> dict[str, ...]:
     """Extracts a returned json object from a raw response"""
-    json_elements = re.findall("```json([\s\S]*?)```", raw_response)
+    json_elements = re.findall(r"```json([\s\S]*?)```", raw_response)
 
     if len(json_elements) == 0:
         try:
@@ -112,7 +113,7 @@ def extract_as_json(raw_response: str, matchname: str | None) -> str:
 
     # check if there are nested JSON structures
     peeled_raw_response = raw_response[raw_response.find("```json") + 7:raw_response.rfind("```")].strip()
-    if len(re.findall(pattern="```([\s\S]*?)```", string=peeled_raw_response)) > 0:
+    if len(re.findall(pattern=r"```([\s\S]*?)```", string=peeled_raw_response)) > 0:
         # If there are multiple ```json delimiters, this could mean nested json structures
         start_delim = "```json"
         end_delim = "```"
@@ -130,11 +131,11 @@ def extract_as_json(raw_response: str, matchname: str | None) -> str:
                 "Also refrain from using anything encapsulated between a pair of ``` within your answer as this poses problems for parsing."
             )
     else:
-        json_elements = re.findall(pattern="```json([\s\S]*?)```", string=raw_response)
+        json_elements = re.findall(pattern=r"```json([\s\S]*?)```", string=raw_response)
 
     if len(json_elements) == 0:
         try:
-            dict_elements = re.findall("{([\s\S]*?)}", raw_response)
+            dict_elements = re.findall(r"{([\s\S]*?)}", raw_response)
             if len(dict_elements) > 0:
                 candidate = "{" + dict_elements[0].replace("\n", "") + "}"
             else:
@@ -677,7 +678,7 @@ def unwrap_code(wrapped_code: str) -> str:
     """
     Finds the code inside a try/except and returns it indented left
     """
-    inner_code = re.findall("try:([\s\S]*?)except", wrapped_code)[0]
+    inner_code = re.findall(r"try:([\s\S]*?)except", wrapped_code)[0]
     return inner_code.replace("\n    ", "\n").strip()
 
 
@@ -742,6 +743,8 @@ def run_command(command: str) -> str | None:
         The combined stdout output from the command if successful, or None
     """
     try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="replace")
         env_updates, command = _extract_env_prefix(command)
         env = os.environ.copy()
         env.update(env_updates)
@@ -751,7 +754,7 @@ def run_command(command: str) -> str | None:
             command,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -762,10 +765,6 @@ def run_command(command: str) -> str | None:
             if line:
                 print(line, end='')
                 output.append(line)
-        stderr = process.stderr.read() if process.stderr else ""
-        if stderr:
-            print(stderr, end="", flush=True)
-            output.append(stderr)
         return_code = process.wait()
         if return_code != 0:
             print(f"Command failed with exit code {return_code}: {command}", flush=True)

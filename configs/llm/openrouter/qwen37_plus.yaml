@@ -1,0 +1,5 @@
+defaults:
+  - openrouter
+
+model_id: qwen/qwen3.7-plus
+context_length: 1000000

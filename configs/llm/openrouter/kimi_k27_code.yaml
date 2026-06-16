@@ -1,0 +1,5 @@
+defaults:
+  - openrouter
+
+model_id: moonshotai/kimi-k2.7-code
+context_length: 262144

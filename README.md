@@ -17,11 +17,9 @@ Current DACON flow:
 
 1. Prepare local CSV files into an Agent_K-style local task.
 2. Run the Agent_K pipeline with OpenRouter.
-3. Let Agent_K/RAMP create the starting kit, base predictors, hyperopt/blend run,
-   and final submission.
-4. If the full RAMP race is unstable on Windows, optionally create a reproducible
-   LightGBM emergency fallback submission with the same Auto_Dacon CLI.
-5. Record the DACON public score as experience for later reuse.
+3. Let Agent_K/RAMP create the starting kit, base predictors, blend run, and
+   final submission. Hyperparameter search runs only when explicitly enabled.
+4. Record the DACON public score as experience for later reuse.
 
 ## Windows Setup
 
@@ -35,6 +33,19 @@ $env:OPENROUTER_API_KEY="..."
 .\.venv-agentk\Scripts\python.exe auto_dacon.py doctor
 ```
 
+Requirements are split by runtime role:
+
+- `requirements.txt`: base Auto_Dacon / Agent_K / RAMP environment.
+- `requirements-agentk-extra.txt`: Windows DACON tabular extras used by bootstrap.
+- `requirements-react.txt`: separated AIDE post-scaffold/ReAct environment.
+- `requirements-post-scaffold.txt`: pip entry point for the separated ReAct env.
+
+Use a separate ReAct environment before running post-scaffold:
+
+```powershell
+.\.venv-agentk\Scripts\python.exe auto_dacon.py bootstrap-react
+```
+
 ## Run From A Competition Repo
 
 The competition repo should contain:
@@ -45,82 +56,109 @@ The competition repo should contain:
 - `data/test.csv`
 - `data/sample_submission.csv`
 
+Run from the competition repo so local runtime artifacts stay with that
+competition, not in Auto_Dacon:
+
+```powershell
+$env:AUTO_DACON_HOME="C:\path\to\Auto_Dacon"
+cd "C:\path\to\your-dacon-project"
+```
+
 Full Agent_K/Auto_Dacon run:
 
 ```powershell
-.\.venv-agentk\Scripts\python.exe auto_dacon.py run-project `
-  --project-dir "C:\path\to\Smart-Warehouse-Shipment-Delay-Prediction" `
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" run-project `
+  --project-dir . `
   --total-time 7200 `
   --max-cpu 4
 ```
 
 Default OpenRouter model roles:
 
-- `agent.llm`: `openrouter/qwen25_72b` -> `qwen/qwen-2.5-72b-instruct`
-- `agent.code_llm`: `openrouter/deepseek_v3` -> `deepseek/deepseek-chat`
+- `agent.llm`: `openrouter/qwen37_plus` -> `qwen/qwen3.7-plus`
+- `agent.code_llm`: `openrouter/claude_sonnet_46` -> `anthropic/claude-sonnet-4.6`
 
-Auto_Dacon defaults to `AUTO_DACON_RAMP_PRESET=agentk`. In this mode, the setup
-stage lets the LLM create the Agent_K starting kit/baseline code, RAMP setup runs
-the starting kit, and the main RAMP hyperopt/blend search uses Agent_K-like
-defaults.
-
-Only set `windows_fast` when you intentionally want a smaller local smoke run:
-
-```powershell
-$env:AUTO_DACON_RAMP_PRESET="windows_fast"
-```
-
-You can also override individual RAMP settings:
-
-```powershell
-$env:AUTO_DACON_BASE_PREDICTORS="lgbm,xgboost,catboost"
-$env:AUTO_DACON_N_FOLDS_HYPEROPT="3"
-$env:AUTO_DACON_N_FOLDS_FINAL_BLEND="30"
-$env:AUTO_DACON_DATA_PREPROCESSORS="drop_id,drop_columns,base_columnwise,col_in_train_only,rm_constant_col"
-```
+Auto_Dacon fixes the RAMP preset to Agent_K mode. The setup stage lets the LLM
+create the Agent_K starting kit/baseline code, RAMP setup runs the starting kit,
+and the main RAMP run keeps Agent_K-like model/blend behavior. HEBO/Ray
+hyperparameter search is off by default and runs only with `--enable-hyperopt`.
 
 Agent_K setup RAG can be enabled after the local pipeline is stable:
 
 ```powershell
-.\.venv-agentk\Scripts\python.exe auto_dacon.py run-project `
-  --project-dir "C:\path\to\Smart-Warehouse-Shipment-Delay-Prediction" `
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" run-project `
+  --project-dir . `
   --enable-agent-rag `
   --agent-rag-path "C:\Auto_Dacon_RAG\kaggle_cases_db"
 ```
 
-Portable emergency fallback baseline run:
+Post-scaffold/ReAct runs after the Agent_K/RAMP scaffold and does not rerun setup.
+By default it first runs the multi-model research loop, builds a fresh warm-start,
+then runs Claude ReAct:
 
 ```powershell
-.\.venv-agentk\Scripts\python.exe auto_dacon.py baseline-project `
-  --project-dir "C:\path\to\Smart-Warehouse-Shipment-Delay-Prediction" `
-  --output-root "C:\Auto_Dacon_Outputs" `
-  --max-cpu 4
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" run-react-project `
+  --project-dir . `
+  --enable-rag `
+  --rag-path "C:\Auto_Dacon_RAG\kaggle_cases_db"
 ```
 
-This is not the Agent_K LLM-generated baseline. It is a separate reproducible
-fallback for cases where the full Agent_K/RAMP run is blocked on a local Windows
-machine.
+The ReAct code and feedback model defaults to OpenRouter
+`anthropic/claude-sonnet-4.6`. Auto_Dacon only writes submission files; it does
+not submit to DACON automatically.
 
-The latest fallback submission is written to:
+To bypass the research loop and run ReAct directly with the default/project
+warm-start:
 
-```text
-C:\Auto_Dacon_Outputs\<task_id>\submission_latest.csv
+```powershell
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" run-react-project `
+  --project-dir . `
+  --enable-rag `
+  --skip-research-loop
 ```
 
-and copied into the competition repo:
+## Multi-Model Research Loop
 
-```text
-<competition_repo>\outputs\submission_latest.csv
+After recording a public score, Auto_Dacon runs a separate research layer before
+the next ReAct experiment. This does not modify Agent_K/RAMP internals. It reads the
+competition repo's notes, data profile, score history, and submission list, then runs:
+
+- Analyst nodes: DeepSeek, GLM, Kimi, GPT, Gemini
+- Hypothesis nodes: DeepSeek, GLM, Kimi, GPT, Gemini
+- Critic nodes: DeepSeek, GLM, Kimi, GPT, Gemini
+- Selector: Claude Sonnet 4.6
+- Warm-start Builder: Claude Sonnet 4.6
+
+Create only the next warm-start without running ReAct:
+
+```powershell
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" research-next `
+  --project-dir .
 ```
+
+`run-react-project` already does this automatically, but the explicit equivalent is:
+
+```powershell
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" research-next `
+  --project-dir . `
+  --enable-rag `
+  --run-react
+```
+
+Research outputs are written under
+`<competition_repo>\notes\research_rounds\...`, and the latest warm-start is also
+copied to `<competition_repo>\notes\latest_research_warm_start.txt`.
 
 ## Record Public Score
 
 ```powershell
-.\.venv-agentk\Scripts\python.exe auto_dacon.py record-score `
-  --task-id smart_warehouse_shipment_delay_prediction `
+& "$env:AUTO_DACON_HOME\.venv-agentk\Scripts\python.exe" "$env:AUTO_DACON_HOME\auto_dacon.py" record-score `
+  --task-id your_dacon_task_id `
+  --project-dir . `
   --public-score 11.2360866528 `
   --notes "First DACON baseline submission."
 ```
 
-Secrets and data are local only. Do not commit `.env`, raw data, workspace outputs,
-or generated submission CSV files.
+Secrets and data are local only. Auto_Dacon keeps reusable agent code only; competition
+data, notes, scores, runtime files, and generated submissions belong in the competition
+repo or in an explicit external RAG/experience path.

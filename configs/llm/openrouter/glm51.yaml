@@ -1,0 +1,5 @@
+defaults:
+  - openrouter
+
+model_id: z-ai/glm-5.1
+context_length: 202752

@@ -1,0 +1,12 @@
+# Auto_Dacon base environment for Windows DACON Agent_K/RAMP runs.
+#
+# Preferred install path:
+#   py -3.11 auto_dacon.py bootstrap
+#
+# This file mirrors the base pieces that bootstrap installs. The bootstrap
+# command additionally installs third_party/ds-agent with --no-deps, then
+# extracts and installs the bundled ramp-workflow and ramp-hyperopt packages
+# after applying Windows compatibility patches.
+
+-e .
+-r requirements-agentk-extra.txt

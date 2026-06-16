@@ -1,0 +1,5 @@
+defaults:
+  - openrouter
+
+model_id: anthropic/claude-sonnet-4.6
+context_length: 1000000

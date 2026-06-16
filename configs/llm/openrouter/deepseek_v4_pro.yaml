@@ -1,0 +1,5 @@
+defaults:
+  - openrouter
+
+model_id: deepseek/deepseek-v4-pro
+context_length: 1048576

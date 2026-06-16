@@ -1,0 +1,6 @@
+# Alias for the separated AIDE post-scaffold/ReAct environment.
+# Preferred install path:
+#   py -3.11 auto_dacon.py bootstrap-react
+
+-r requirements-react.txt
+-e ./third_party/aideml

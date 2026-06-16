@@ -1,0 +1,5 @@
+defaults:
+  - openrouter
+
+model_id: google/gemini-3.5-flash
+context_length: 1048576

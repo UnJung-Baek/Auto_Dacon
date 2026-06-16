@@ -560,9 +560,13 @@ class GetTableView(HumanTakeoverCommand):
                 s = buffer.getvalue()
                 _table_info = s
                 for c in table.columns[1:]:
-                    if (table[c].dtype == 'object' and isinstance(table[c].iloc[0], str)
-                            and len(table[c].unique().tolist()) < 200):
-                        _table_info += f"\n- column {c} contains strings with values in {table[c].unique().tolist()}"
+                    if table[c].dtype == 'object' and isinstance(table[c].iloc[0], str):
+                        try:
+                            unique_values = table[c].unique().tolist()
+                        except TypeError:
+                            unique_values = table[c].astype(str).unique().tolist()
+                        if len(unique_values) < 200:
+                            _table_info += f"\n- column {c} contains strings with values in {unique_values}"
                 raw_table_info += "\n\n" + _table_info
                 raw_table_info = '```\n' + raw_table_info + '\n```\n'
 

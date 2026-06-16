@@ -3,10 +3,10 @@ requires = ["setuptools>=68.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent"
+name = "auto-dacon"
 version = "0.2.0"
-description = ""
-authors =  [{ name = "Huawei - Agent K Team", email = "agent.k@huawei.com" }]
+description = "Windows-friendly DACON automation agent based on Agent_K."
+authors =  [{ name = "Auto_Dacon Maintainers" }]
 readme = "README.md"
 requires-python = ">3.10,<3.12"
 license = { file = "LICENSE" }

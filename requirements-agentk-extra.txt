@@ -1,0 +1,15 @@
+# Auto_Dacon Windows Agent_K/RAMP extras installed by `auto_dacon.py bootstrap`.
+
+catboost==1.2.8
+gensim==4.3.3
+jsonlines
+lightgbm==4.6.0
+nvidia-ml-py
+py7zr
+rarfile
+scikit-learn==1.6.1
+scikit-posthocs==0.11.4
+sentencepiece==0.2.0
+streamlit
+textdistance
+xgboost==2.1.4

@@ -39,7 +39,6 @@ def check_for_success(run_dir: Path, match_patterns: list[str]) -> bool:
 def is_setup_pipeline_successful(
         setup_dir: Path,
         is_tabular: bool,
-        use_final_unit_test: bool = True,
 ) -> bool:
     """
     Checks whether the final unit test passed and the submission.csv file was created.
@@ -51,17 +50,6 @@ def is_setup_pipeline_successful(
     Returns:
         bool: Status of the setup pipeline.
     """
-    if not use_final_unit_test:
-        required_setup_files = [
-            "train_tab_input_map.csv",
-            "train_tab_target_map.csv",
-            "test_tab_input_map.csv",
-            "code_submission_format.py",
-            "metadata/metric.json",
-            "metadata/column_types.json",
-        ]
-        return all((setup_dir / filename).exists() for filename in required_setup_files)
-
     ramp_pipeline_files = [
         "./final_unit_test_vtest_n0/submissions/starting_kit/training_output/bagged_scores.csv",
         "./final_unit_test_vtest_n0/submissions/starting_kit/training_output/submission_bagged_test.csv",
@@ -144,10 +132,10 @@ def run_setup_pipeline(
         is_tabular: bool,
         exp_dir: Path,
         setup_log_dir: Path,
-        use_final_unit_test: bool = True,
         default_response_path: str = None,
         enable_agent_rag: bool = False,
         agent_rag_path: str | None = None,
+        agent_rag_k: int = 2,
 ) -> tuple[bool, float, Path]:
     """
     Runs the setup pipeline for a given task configuration by repeatedly attempting to set up
@@ -165,7 +153,6 @@ def run_setup_pipeline(
         is_tabular: Indicates if the task is fully tabular
         exp_dir: Base directory for experiment output and workspace.
         setup_log_dir:Directory to store logs for each setup attempt.
-        use_final_unit_test: Whether to use the final unit test for validation. Defaults to True.
         alt_raw_data_root: Alternative data root path for raw task input.
         default_response_path:Path to a file containing pre-registered LLM responses.
 
@@ -194,6 +181,7 @@ def run_setup_pipeline(
         setup_dir.mkdir(parents=True, exist_ok=True)
 
         setup_command = (
+            f"AUTO_DACON_LLM_TRACE_FILE={setup_dir / 'llm_trace_setup.jsonl'} "
             f"HYDRA_FULL_ERROR=1 \"{sys.executable}\" ./src/agent/start.py "
             f"--config-name think_and_code_llm_sa_eval "
             f"task={prep_task} method={prep_method} "
@@ -203,7 +191,7 @@ def run_setup_pipeline(
             f"extras.print_config=False "
             f"task.task_id={task_id} "
             f"task.workspace_path={setup_dir} "
-            f"task.use_final_unit_test={use_final_unit_test} "
+            f"task.use_final_unit_test=True "
             f"hydra.run.dir={setup_log_dir}/seed_{setup_version} "
             f"task.is_local_task={is_local_task} "
         )
@@ -211,7 +199,9 @@ def run_setup_pipeline(
             setup_command = f"ALT_RAW_DATA_ROOT={alt_raw_data_root} " + setup_command
 
         if enable_agent_rag:
-            setup_command += "method.pre_episode_start_flow.sequence.1.disabled=false "
+            setup_command += "agent.on_episode_start_flow.sequence.1.disabled=false "
+            setup_command += f"task.db_faiss_k={agent_rag_k} "
+            setup_command += "task.embedding_model_name=sentence-transformers/all-mpnet-base-v2 "
             if agent_rag_path:
                 setup_command += f"task.db_faiss_path={agent_rag_path} "
 
@@ -242,7 +232,6 @@ def run_setup_pipeline(
         if is_setup_pipeline_successful(
                 setup_dir,
                 is_tabular=is_tabular,
-                use_final_unit_test=use_final_unit_test,
         ):
             print("Setup completed successfully.", flush=True)
             is_setup_successful = True
@@ -276,6 +265,7 @@ def run_ds_main_pipeline(
         terminate_after_training: bool = False,
         enable_agent_rag: bool = False,
         agent_rag_path: str | None = None,
+        agent_rag_k: int = 2,
 ) -> bool:
     """
     Runs the main data science pipeline using the given setup directory
@@ -315,6 +305,7 @@ def run_ds_main_pipeline(
 
     workspace_path = working_dir / setup_dir.name / 'main_pipeline'
     main_pipeline_command = (
+        f"AUTO_DACON_LLM_TRACE_FILE={workspace_path / 'llm_trace_main.jsonl'} "
         f"HYDRA_FULL_ERROR=1 "
         f"ALLOW_DEFAULT_RESPONSE={allow_default_response} "
         f"AGENT_DEBUG={debug_mode} "
@@ -342,7 +333,9 @@ def run_ds_main_pipeline(
         main_pipeline_command = f"ALT_RAW_DATA_ROOT={alt_raw_data_root} " + main_pipeline_command
 
     if enable_agent_rag:
-        main_pipeline_command += "method.pre_episode_start_flow.sequence.0.disabled=false "
+        main_pipeline_command += "agent.on_episode_start_flow.sequence.0.disabled=false "
+        main_pipeline_command += f"task.db_faiss_k={agent_rag_k} "
+        main_pipeline_command += "task.embedding_model_name=sentence-transformers/all-mpnet-base-v2 "
         if agent_rag_path:
             main_pipeline_command += f"task.db_faiss_path={agent_rag_path} "
 
@@ -379,14 +372,6 @@ def run_ds_tabular_ramp(
     time_for_main_pipeline = time_for_main_pipeline / 3600
     name_version = llm.split('/')[-1]
     agent_root = "."
-    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET", "agentk").lower()
-    if ramp_preset not in {"agentk", "windows_fast", "fast", "local_fast"}:
-        raise ValueError(
-            "AUTO_DACON_RAMP_PRESET must be one of: agentk, windows_fast, fast, local_fast"
-        )
-    use_fast_ramp_defaults = ramp_preset in {"windows_fast", "fast", "local_fast"}
-    os.environ.setdefault("AUTO_DACON_SKIP_RAMP_SETUP_TRAIN", "1" if use_fast_ramp_defaults else "0")
-
     scripts_dir = Path(sys.executable).parent
     exe_suffix = ".exe" if os.name == "nt" else ""
     ramp_setup_exe = scripts_dir / f"ramp-setup{exe_suffix}"
@@ -418,24 +403,16 @@ def run_ds_tabular_ramp(
     elapsed_hours = elapsed_secs / 3600
     remaining_hours = max(time_for_main_pipeline - elapsed_hours, 0)
 
-    default_predictors = "lgbm" if use_fast_ramp_defaults else "lgbm,xgboost,catboost"
-    base_predictors = [
-        predictor.strip()
-        for predictor in os.environ.get("AUTO_DACON_BASE_PREDICTORS", default_predictors).split(",")
-        if predictor.strip()
-    ]
-    base_predictor_args = " ".join(f"--base-predictors {predictor}" for predictor in base_predictors)
-    default_preprocessors = "drop_id,base_columnwise,rm_constant_col" if use_fast_ramp_defaults else ""
-    data_preprocessors = [
-        preprocessor.strip()
-        for preprocessor in os.environ.get("AUTO_DACON_DATA_PREPROCESSORS", default_preprocessors).split(",")
-        if preprocessor.strip()
-    ]
-    data_preprocessor_args = " ".join(f"--data-preprocessors {preprocessor}" for preprocessor in data_preprocessors)
-    n_rounds = int(os.environ.get("AUTO_DACON_N_ROUNDS", "1000"))
-    n_trials_per_round = int(os.environ.get("AUTO_DACON_N_TRIALS_PER_ROUND", "1"))
-    n_folds_hyperopt = int(os.environ.get("AUTO_DACON_N_FOLDS_HYPEROPT", "1" if use_fast_ramp_defaults else "3"))
-    n_folds_final_blend = int(os.environ.get("AUTO_DACON_N_FOLDS_FINAL_BLEND", "5" if use_fast_ramp_defaults else "30"))
+    enable_hyperopt = os.environ.get("AUTO_DACON_ENABLE_HYPEROPT", "1").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    n_rounds = 1000 if enable_hyperopt else 0
+    n_trials_per_round = 1
+    n_folds_hyperopt = 5
+    n_folds_final_blend = 5
     ramp_run_hyperopt_race_command = (
         f"\"{ramp_hyperopt_race_exe}\" --ramp-kit ramp_kit "
         f"--version {name_version} "
@@ -447,8 +424,6 @@ def run_ds_tabular_ramp(
         f"--n-folds-final-blend {n_folds_final_blend} "
         f"--max-time {remaining_hours} "
         f"--n-cpu-per-run {max_cpu} "
-        f"{base_predictor_args} "
-        f"{data_preprocessor_args} "
     )
     with open(cmd_save_path, 'a') as f:
         f.write(ramp_run_hyperopt_race_command + "\n\n")
@@ -517,7 +492,6 @@ def run_setup_and_main_pipline(
         setup_default_response_path: str | None = None,
         main_pipeline_default_response_path: str | None = None,
         max_cpu: int = 0,
-        use_final_unit_test: bool = True,
         allow_default_response: bool = False,
         debug_mode: bool = False,
         terminate_after_training: bool = False,
@@ -526,6 +500,7 @@ def run_setup_and_main_pipline(
         attempt_spec: str = "",
         enable_agent_rag: bool = False,
         agent_rag_path: str | None = None,
+        agent_rag_k: int = 2,
 ) -> dict[str, ...]:
     """
     Executes the setup and main pipeline for a given task.
@@ -548,7 +523,6 @@ def run_setup_and_main_pipline(
         setup_default_response_path: Path to a file containing pre-registered LLM responses for setup.
         main_pipeline_default_response_path: Path to a file containing pre-registered LLM responses for main pipeline.
         max_cpu: Maximum CPU cores to use.
-        use_final_unit_test: Whether to enable final unit tests in setup.
         allow_default_response: Allow default responses.
         debug_mode: Whether to run in debug mode.
         terminate_after_training: Whether to terminate after training phase.
@@ -584,10 +558,10 @@ def run_setup_and_main_pipline(
         is_tabular=is_tabular,
         exp_dir=exp_dir,
         setup_log_dir=setup_log_dir,
-        use_final_unit_test=use_final_unit_test,
         default_response_path=setup_default_response_path,
         enable_agent_rag=enable_agent_rag,
         agent_rag_path=agent_rag_path,
+        agent_rag_k=agent_rag_k,
     )
     if run_setup_only:
         return {'setup': is_setup_successful}
@@ -634,6 +608,7 @@ def run_setup_and_main_pipline(
                 terminate_after_training=terminate_after_training,
                 enable_agent_rag=enable_agent_rag,
                 agent_rag_path=agent_rag_path,
+                agent_rag_k=agent_rag_k,
             )
 
         main_pipeline_time_taken = time.time() - main_pipeline_start_time
@@ -676,6 +651,7 @@ def main(
         attempt_spec: str = "",
         enable_agent_rag: bool = False,
         agent_rag_path: str | None = None,
+        agent_rag_k: int = 2,
 ) -> None:
     """
     Runs the setup and main pipeline stages for a task.
@@ -710,11 +686,6 @@ def main(
     """
     debug_mode = os.environ.get("AGENT_DEBUG", False)
     allow_default_response = os.environ.get("ALLOW_DEFAULT_RESPONSE", False)
-    ramp_preset = os.environ.get("AUTO_DACON_RAMP_PRESET", "agentk")
-    default_final_test = "0" if is_local_task and ramp_preset.lower() != "agentk" else "1"
-    use_final_unit_test = os.environ.get("AUTO_DACON_USE_FINAL_UNIT_TEST", default_final_test).lower()
-    use_final_unit_test = use_final_unit_test in {"1", "true", "yes", "on"}
-
     run_status = run_setup_and_main_pipline(
         workspace_name=workspace_name,
         task_id=task_id,
@@ -733,7 +704,6 @@ def main(
         setup_default_response_path=None,
         main_pipeline_default_response_path=None,
         max_cpu=max_cpu,
-        use_final_unit_test=use_final_unit_test,
         terminate_after_training=terminate_after_training,
         run_setup_only=run_setup_only,
         attempt=attempt,
@@ -743,6 +713,7 @@ def main(
         debug_mode=debug_mode,
         enable_agent_rag=enable_agent_rag,
         agent_rag_path=agent_rag_path,
+        agent_rag_k=agent_rag_k,
     )
     if run_status['setup']:
         if not run_setup_only:
@@ -781,6 +752,8 @@ def add_shared_args(parser: argparse.ArgumentParser) -> None:
                         help="Enable Agent_K's ds-agent FAISS RAG command.")
     parser.add_argument("--agent_rag_path", type=str, required=False,
                         help="Path to the Agent_K ds-agent FAISS RAG database root.")
+    parser.add_argument("--agent_rag_k", type=int, default=2,
+                        help="Number of RAG examples to retrieve when Agent_K RAG is enabled.")
 
 
 def parse_args() -> argparse.Namespace:

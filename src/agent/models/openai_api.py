@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import os
 import time
@@ -47,6 +48,24 @@ from agent.utils.utils import (
 from ds_agent.utils import save_w_pickle, load_w_pickle
 
 logger_ = logging.getLogger(__name__)
+
+
+def _write_llm_trace(event: str, payload: dict[str, Any]) -> None:
+    trace_path = os.getenv("AUTO_DACON_LLM_TRACE_FILE")
+    if not trace_path:
+        return
+    try:
+        path = os.path.abspath(trace_path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        record = {
+            "event": event,
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            **payload,
+        }
+        with open(path, "a", encoding="utf-8") as trace_file:
+            trace_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        logger_.warning("Failed to write LLM trace: %s", exc)
 
 
 def _num_tokens_from_messages(messages: list[dict[str, str]], model: str) -> int:
@@ -115,6 +134,10 @@ def is_internal_server_error_exception(e: BaseException) -> bool:
     return isinstance(e, HTTPError) and e.response.status_code == 500
 
 
+class EmptyChatCompletionError(RuntimeError):
+    """Raised when a chat-completion provider returns no usable assistant message."""
+
+
 class OpenAIAPILanguageBackend(LanguageBackend):
     def __init__(self, client: InferenceClient | OpenAI, model_id: str, logger: Any, context_length: int,
                  responses_from_file: list[str] | None = None, continue_after_end_of_file: bool = True,
@@ -145,7 +168,8 @@ class OpenAIAPILanguageBackend(LanguageBackend):
              HTTPError,
              HfHubHTTPError,
              ProxyError,
-             requests.exceptions.ConnectionError)
+             requests.exceptions.ConnectionError,
+             EmptyChatCompletionError)
         ),
         before_sleep=before_sleep_log(logger=logger_, log_level=logging.WARNING)
     )
@@ -232,10 +256,47 @@ class OpenAIAPILanguageBackend(LanguageBackend):
                             messages.pop(0)
 
                         # Query the LLM
+                        request_kwargs = {**self.generation_kwargs, **kwargs}
+                        timeout = os.getenv("AUTO_DACON_LLM_TIMEOUT")
+                        if timeout and "timeout" not in request_kwargs:
+                            request_kwargs["timeout"] = float(timeout)
+                        prompt_chars = sum(len(message.get("content", "")) for message in messages)
+                        _write_llm_trace(
+                            "request_start",
+                            {
+                                "model": self.model_id,
+                                "message_count": len(messages),
+                                "prompt_chars": prompt_chars,
+                                "timeout": request_kwargs.get("timeout"),
+                            },
+                        )
                         response = self.client.chat.completions.create(
                             model=self.model_id,
                             messages=messages,
-                            **{**self.generation_kwargs, **kwargs},  # This allows kwargs to overwrite generation_kwargs
+                            **request_kwargs,
+                        )
+                        choices = getattr(response, "choices", None)
+                        if not choices or choices[0] is None or getattr(choices[0], "message", None) is None:
+                            _write_llm_trace(
+                                "request_empty_choices",
+                                {
+                                    "model": self.model_id,
+                                    "elapsed_seconds": round(time.time() - start_time, 3),
+                                    "response_id": getattr(response, "id", None),
+                                },
+                            )
+                            raise EmptyChatCompletionError(
+                                f"Chat completion for {self.model_id} returned no usable choices."
+                            )
+                        usage = getattr(response, "usage", None)
+                        _write_llm_trace(
+                            "request_success",
+                            {
+                                "model": self.model_id,
+                                "elapsed_seconds": round(time.time() - start_time, 3),
+                                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                                "completion_tokens": getattr(usage, "completion_tokens", None),
+                            },
                         )
                         if save_response_filepath is not None:
                             # couldn't use json with ChatCompletion type...
@@ -248,9 +309,15 @@ class OpenAIAPILanguageBackend(LanguageBackend):
                     if len(max_len_err) > 0:
                         raise
                     raise
-                raw_output_text = response.choices[0].message.content.strip()
-                api_usage_input = response.usage.prompt_tokens
-                api_usage_output = response.usage.completion_tokens
+                raw_content = response.choices[0].message.content
+                if raw_content is None:
+                    raise EmptyChatCompletionError(
+                        f"Chat completion for {self.model_id} returned an empty assistant message."
+                    )
+                raw_output_text = raw_content.strip()
+                usage = getattr(response, "usage", None)
+                api_usage_input = getattr(usage, "prompt_tokens", 0)
+                api_usage_output = getattr(usage, "completion_tokens", 0)
             else:
                 raw_output_text = super().human_chat_completion(
                     messages=messages, parse_func=lambda x: x
@@ -258,12 +325,15 @@ class OpenAIAPILanguageBackend(LanguageBackend):
                 api_usage_input = 0
                 api_usage_output = 0
         except openai.APIConnectionError as e:
+            _write_llm_trace("request_error", {"model": self.model_id, "error_type": type(e).__name__, "error": str(e)})
             print(f"API Connection Error: {e}")
             raise
         except openai.RateLimitError as e:
+            _write_llm_trace("request_error", {"model": self.model_id, "error_type": type(e).__name__, "error": str(e)})
             print(f"Rate Limit Exceeded: {e}")
             raise
         except openai.OpenAIError as e:
+            _write_llm_trace("request_error", {"model": self.model_id, "error_type": type(e).__name__, "error": str(e)})
             print(f"General OpenAI API Error: {e}")
             raise
         human_mode = self.human_mode

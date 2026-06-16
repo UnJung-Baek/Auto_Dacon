@@ -30,4 +30,5 @@ if __name__ == "__main__":
         attempt_spec=args.attempt_spec,
         enable_agent_rag=args.enable_agent_rag,
         agent_rag_path=args.agent_rag_path,
+        agent_rag_k=args.agent_rag_k,
     )
