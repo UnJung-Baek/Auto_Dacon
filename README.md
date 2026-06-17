@@ -149,6 +149,13 @@ Research outputs are written under
 `<competition_repo>\notes\research_rounds\...`, and the latest warm-start is also
 copied to `<competition_repo>\notes\latest_research_warm_start.txt`.
 
+Developer note: `research-next` keeps the CLI in `auto_dacon.py`, but runs through
+packaged `auto_dacon.research` modules for schemas, project context, prompts,
+the OpenRouter client, runtime orchestration, and artifacts. This is an
+AutoGen-style schema/node runtime, not an AutoGen dependency. Research tests live
+under `tests/auto_dacon/research` and can be run with
+`python -m pytest tests/auto_dacon/research -q`.
+
 ## Record Public Score
 
 ```powershell
