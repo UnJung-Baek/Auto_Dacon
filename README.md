@@ -82,6 +82,8 @@ Auto_Dacon fixes the RAMP preset to Agent_K mode. The setup stage lets the LLM
 create the Agent_K starting kit/baseline code, RAMP setup runs the starting kit,
 and the main RAMP run keeps Agent_K-like model/blend behavior. HEBO/Ray
 hyperparameter search is off by default and runs only with `--enable-hyperopt`.
+Agent_K submission stages are local-only in Auto_Dacon: they select and record
+generated CSV artifacts, but never authenticate to Kaggle or submit to DACON.
 
 Agent_K setup RAG can be enabled after the local pipeline is stable:
 
@@ -104,8 +106,8 @@ then runs Claude ReAct:
 ```
 
 The ReAct code and feedback model defaults to OpenRouter
-`anthropic/claude-sonnet-4.6`. Auto_Dacon only writes submission files; it does
-not submit to DACON automatically.
+`anthropic/claude-sonnet-4.6`. ReAct is also local-only: Auto_Dacon writes and
+collects submission files, but does not submit to DACON automatically.
 
 To bypass the research loop and run ReAct directly with the default/project
 warm-start:
