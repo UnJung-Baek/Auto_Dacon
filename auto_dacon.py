@@ -22,16 +22,21 @@ DEFAULT_RAG_PATH = Path("C:/Auto_Dacon_RAG/kaggle_cases_db")
 AIDE_RAG_EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
 PROJECT_RUNTIME_DIRNAME = ".auto_dacon_runtime"
 DEFAULT_REACT_MODEL = "anthropic/claude-sonnet-4.6"
-DEFAULT_RESEARCH_PANEL_MODELS = (
+DEFAULT_RESEARCH_ANALYST_MODELS = (
     "deepseek/deepseek-v4-pro",
+    "google/gemini-3.5-flash",
     "z-ai/glm-5.1",
+)
+DEFAULT_RESEARCH_HYPOTHESIS_MODELS = (
+    "anthropic/claude-sonnet-4.6",
+    "deepseek/deepseek-v4-pro",
     "moonshotai/kimi-k2.7-code",
-    "openai/gpt-5.5",
+)
+DEFAULT_RESEARCH_CRITIC_MODELS = (
+    "anthropic/claude-sonnet-4.6",
+    "deepseek/deepseek-v4-pro",
     "google/gemini-3.5-flash",
 )
-DEFAULT_RESEARCH_ANALYST_MODELS = DEFAULT_RESEARCH_PANEL_MODELS
-DEFAULT_RESEARCH_HYPOTHESIS_MODELS = DEFAULT_RESEARCH_PANEL_MODELS
-DEFAULT_RESEARCH_CRITIC_MODELS = DEFAULT_RESEARCH_PANEL_MODELS
 DEFAULT_RESEARCH_SELECTOR_MODEL = "anthropic/claude-sonnet-4.6"
 DEFAULT_RESEARCH_WARM_START_MODEL = "anthropic/claude-sonnet-4.6"
 
