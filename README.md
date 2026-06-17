@@ -125,11 +125,11 @@ After recording a public score, Auto_Dacon runs a separate research layer before
 the next ReAct experiment. This does not modify Agent_K/RAMP internals. It reads the
 competition repo's notes, data profile, score history, and submission list, then runs:
 
-- Analyst nodes: DeepSeek, GLM, Kimi, GPT, Gemini
-- Hypothesis nodes: DeepSeek, GLM, Kimi, GPT, Gemini
-- Critic nodes: DeepSeek, GLM, Kimi, GPT, Gemini
-- Selector: Claude Sonnet 4.6
-- Warm-start Builder: Claude Sonnet 4.6
+- Analyst nodes: DeepSeek V4 Pro (`deepseek/deepseek-v4-pro`), Gemini 3.5 Flash (`google/gemini-3.5-flash`), GLM 5.1 (`z-ai/glm-5.1`)
+- Hypothesis nodes: Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`), DeepSeek V4 Pro (`deepseek/deepseek-v4-pro`), Kimi K2.7 Code (`moonshotai/kimi-k2.7-code`)
+- Critic nodes: Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`), DeepSeek V4 Pro (`deepseek/deepseek-v4-pro`), Gemini 3.5 Flash (`google/gemini-3.5-flash`)
+- Selector: Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`)
+- Warm-start Builder: Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`)
 
 Create only the next warm-start without running ReAct:
 
