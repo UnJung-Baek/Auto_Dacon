@@ -10,6 +10,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "src"
+if SRC.exists() and str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 DEFAULT_DATA_ROOT = Path("data") / "dacon"
 DEFAULT_WORKSPACE = Path("workspace_dacon")
 DEFAULT_OUTPUT_ROOT = Path("outputs") / "dacon"
@@ -31,6 +34,20 @@ DEFAULT_RESEARCH_HYPOTHESIS_MODELS = DEFAULT_RESEARCH_PANEL_MODELS
 DEFAULT_RESEARCH_CRITIC_MODELS = DEFAULT_RESEARCH_PANEL_MODELS
 DEFAULT_RESEARCH_SELECTOR_MODEL = "anthropic/claude-sonnet-4.6"
 DEFAULT_RESEARCH_WARM_START_MODEL = "anthropic/claude-sonnet-4.6"
+
+from auto_dacon.research.context import (  # noqa: E402
+    compact_dataframe_profile as _compact_dataframe_profile,
+    compact_research_context_for_prompt as _compact_research_context_for_prompt,
+    load_project_research_context as _load_project_research_context,
+    read_text_if_exists as _read_text_if_exists,
+)
+from auto_dacon.research.prompts import research_messages as _research_messages  # noqa: E402
+from auto_dacon.research.openrouter import (  # noqa: E402
+    OpenRouterClient,
+    openrouter_chat as _packaged_openrouter_chat,
+)
+from auto_dacon.research.runtime import ResearchRuntime  # noqa: E402
+from auto_dacon.research.schemas import NodeRole, NodeSpec  # noqa: E402
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -599,229 +616,27 @@ def default_warm_start_summary(project_dir: Path, metadata: dict) -> Path:
 
 
 def read_text_if_exists(path: Path, max_chars: int = 12000) -> str:
-    if not path.exists():
-        return ""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    return text[-max_chars:] if len(text) > max_chars else text
+    return _read_text_if_exists(path, max_chars)
 
 
 def compact_dataframe_profile(path: Path, target_column: str | None = None) -> dict[str, Any]:
-    import pandas as pd
-
-    df = pd.read_csv(path, nrows=20000)
-    missing_ratio = df.isna().mean().sort_values(ascending=False)
-    missing_nonzero = missing_ratio[missing_ratio > 0].head(50).round(4).to_dict()
-    numeric_cols = list(df.select_dtypes(include="number").columns)
-    object_cols = list(df.select_dtypes(include=["object", "category"]).columns)
-    profile: dict[str, Any] = {
-        "file": path.name,
-        "rows_profiled": int(len(df)),
-        "n_columns": int(len(df.columns)),
-        "columns": list(df.columns),
-        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-        "missing_nonzero_top50": missing_nonzero,
-        "numeric_columns": numeric_cols,
-        "categorical_columns": object_cols,
-    }
-    profile["categorical_cardinality"] = {
-        col: int(df[col].nunique(dropna=True)) for col in object_cols
-    }
-    if target_column and target_column in df.columns:
-        target = pd.to_numeric(df[target_column], errors="coerce")
-        profile["target_summary"] = target.describe().round(4).to_dict()
-    numeric_summary_cols = []
-    if target_column and target_column in numeric_cols:
-        numeric_summary_cols.append(target_column)
-    numeric_summary_cols.extend(
-        col for col in missing_nonzero if col in numeric_cols and col not in numeric_summary_cols
-    )
-    numeric_summary_cols.extend(col for col in numeric_cols[:20] if col not in numeric_summary_cols)
-    if numeric_summary_cols:
-        profile["selected_numeric_summary"] = (
-            df[numeric_summary_cols[:40]]
-            .describe()
-            .round(4)
-            .to_dict()
-        )
-    return profile
+    return _compact_dataframe_profile(path, target_column)
 
 
 def load_project_research_context(project_dir: Path, metadata: dict) -> dict[str, Any]:
-    notes_dir = project_dir / "notes"
-    outputs_dir = project_dir / "outputs"
-    data_dir = project_dir / "data"
-    target_column = metadata.get("target_column")
-    context_paths = [
-        project_dir / "competition_context.md",
-        notes_dir / "competition_context.md",
-        notes_dir / "competition.md",
-        notes_dir / "score_summary.md",
-        notes_dir / "latest_score.md",
-        notes_dir / "first_place_code_review.md",
-        notes_dir / "react5_first_place_code_gap_closure.txt",
-    ]
-    note_blocks = {
-        str(path.relative_to(project_dir)): read_text_if_exists(path)
-        for path in context_paths
-        if path.exists()
-    }
-    for path in sorted(notes_dir.glob("*.md")) + sorted(notes_dir.glob("*.txt")):
-        rel = str(path.relative_to(project_dir))
-        if rel not in note_blocks:
-            note_blocks[rel] = read_text_if_exists(path, max_chars=8000)
-
-    score_history_path = notes_dir / "score_history.jsonl"
-    score_history = []
-    if score_history_path.exists():
-        for line in score_history_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.strip():
-                try:
-                    score_history.append(json.loads(line))
-                except json.JSONDecodeError:
-                    score_history.append({"raw": line})
-
-    submissions = []
-    if outputs_dir.exists():
-        for path in sorted(outputs_dir.glob("submission*.csv")):
-            submissions.append(
-                {
-                    "file": str(path.relative_to(project_dir)),
-                    "size_bytes": path.stat().st_size,
-                    "modified_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds"),
-                }
-            )
-
-    data_profiles = {}
-    for filename in ["train.csv", "test.csv", "sample_submission.csv"]:
-        path = data_dir / filename
-        if path.exists():
-            data_profiles[filename] = compact_dataframe_profile(path, target_column)
-
-    return {
-        "metadata": metadata,
-        "score_history": score_history[-20:],
-        "submissions": submissions[-30:],
-        "data_profiles": data_profiles,
-        "notes": note_blocks,
-    }
+    return _load_project_research_context(project_dir, metadata)
 
 
 def compact_research_context_for_prompt(context: dict[str, Any]) -> dict[str, Any]:
-    metadata = context.get("metadata", {})
-    compact_metadata = {
-        key: metadata.get(key)
-        for key in [
-            "task_id",
-            "competition_url",
-            "id_column",
-            "target_column",
-            "metric",
-            "prepared_at",
-        ]
-        if key in metadata
-    }
-    compact_profiles = {}
-    for name, profile in context.get("data_profiles", {}).items():
-        compact_profiles[name] = {
-            "file": profile.get("file"),
-            "rows_profiled": profile.get("rows_profiled"),
-            "n_columns": profile.get("n_columns"),
-            "columns": profile.get("columns"),
-            "missing_nonzero_top50": profile.get("missing_nonzero_top50"),
-            "categorical_columns": profile.get("categorical_columns"),
-            "categorical_cardinality": profile.get("categorical_cardinality"),
-            "target_summary": profile.get("target_summary"),
-        }
-    compact: dict[str, Any] = {
-        "metadata": compact_metadata,
-        "score_history": context.get("score_history", []),
-        "submissions": context.get("submissions", []),
-        "data_profiles": compact_profiles,
-    }
-
-    priority_names = (
-        "latest_score",
-        "score_summary",
-        "first_place",
-        "gap_closure",
-        "competition_context",
-        "latest_research_warm_start",
-    )
-    notes = context.get("notes", {})
-    prioritized_notes = sorted(
-        notes.items(),
-        key=lambda item: (
-            0 if any(name in item[0].lower() for name in priority_names) else 1,
-            item[0].lower(),
-        ),
-    )
-    compact_notes = {}
-    total_note_chars = 0
-    has_node_outputs = any(key in context for key in ["analyst_outputs", "hypothesis_outputs", "critic_outputs"])
-    note_budget = 16000 if has_node_outputs else 24000
-    for rel, text in prioritized_notes:
-        per_note_limit = 5000 if any(name in rel.lower() for name in priority_names) else 1800
-        clipped = text[-per_note_limit:] if len(text) > per_note_limit else text
-        if total_note_chars + len(clipped) > note_budget:
-            compact_notes[rel] = "<omitted due to prompt budget>"
-            continue
-        compact_notes[rel] = clipped
-        total_note_chars += len(clipped)
-    compact["notes"] = compact_notes
-
-    for key in ["analyst_outputs", "hypothesis_outputs", "critic_outputs"]:
-        if key in context:
-            compact[key] = [
-                {
-                    "model": item.get("model"),
-                    "content": item.get("content", "")[-1400:],
-                }
-                for item in context[key]
-            ]
-    if "selector_decision" in context:
-        selector = context["selector_decision"]
-        compact["selector_decision"] = selector[-4000:] if len(selector) > 4000 else selector
-    return compact
+    return _compact_research_context_for_prompt(context)
 
 
 def research_messages(role: str, context: dict[str, Any], extra: str) -> list[dict[str, str]]:
-    prompt_context = compact_research_context_for_prompt(context)
-    compact_context = json.dumps(prompt_context, ensure_ascii=False, indent=2, default=str)
-    if len(compact_context) > 50000:
-        compact_context = compact_context[:50000] + "\n...<truncated>"
-    system = (
-        "You are an elite DACON tabular competition research node. "
-        "Respect the Auto_Dacon contract: do not change Agent_K core algorithms, "
-        "do not assume automatic submission, avoid leakage, and prefer experiments "
-        "that can be validated with robust folds. Be concrete and evidence-driven."
-    )
-    user = (
-        f"Role: {role}\n\n"
-        f"Project context JSON:\n{compact_context}\n\n"
-        f"Task:\n{extra}\n"
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return _research_messages(role, context, extra)
 
 
 def openrouter_chat(model: str, messages: list[dict[str, str]], api_key: str, max_tokens: int = 2200) -> str:
-    from openai import OpenAI
-
-    timeout = float(os.getenv("AUTO_DACON_LLM_TIMEOUT", "120"))
-    client = OpenAI(
-        api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
-        timeout=timeout,
-    )
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.35,
-        max_tokens=max_tokens,
-    )
-    content = response.choices[0].message.content
-    if not content:
-        raise RuntimeError(f"OpenRouter model returned empty content: {model}")
-    return content
+    return _packaged_openrouter_chat(model, messages, api_key, max_tokens=max_tokens)
 
 
 def run_research_panel(
@@ -832,23 +647,12 @@ def run_research_panel(
         api_key: str,
         out_dir: Path,
 ) -> list[dict[str, str]]:
-    results = []
+    nodes = []
     for model in models:
         print(f"Running research node {name}: {model}")
-        try:
-            text = openrouter_chat(
-                model,
-                research_messages(name, context, instruction),
-                api_key,
-            )
-        except Exception as exc:
-            text = f"ERROR from {model}: {type(exc).__name__}: {exc}"
-        safe_model = "".join(ch if ch.isalnum() else "_" for ch in model).strip("_")
-        write_text_file(out_dir / f"{name}_{safe_model}.md", text)
-        results.append({"role": name, "model": model, "content": text})
-    if results and all(result["content"].startswith("ERROR from ") for result in results):
-        raise RuntimeError(f"All models failed in research node: {name}")
-    return results
+        nodes.append(NodeSpec(role=NodeRole(name), model=model, instruction=instruction))
+    results = ResearchRuntime(OpenRouterClient(api_key=api_key)).run_panel(name, nodes, context, out_dir)
+    return [result.to_panel_result() for result in results]
 
 
 def build_research_warm_start(project_dir: Path, args: argparse.Namespace) -> Path:
@@ -866,91 +670,71 @@ def build_research_warm_start(project_dir: Path, args: argparse.Namespace) -> Pa
         env.setdefault(key, value)
     if args.openrouter_api_key:
         env["OPENROUTER_API_KEY"] = args.openrouter_api_key
-    api_key = env.get("OPENROUTER_API_KEY")
+    api_key = env.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is required. Pass --openrouter-api-key or set the environment variable.")
 
-    context = load_project_research_context(project_dir, metadata)
-    round_dir = project_dir / "notes" / "research_rounds" / datetime.now().strftime("%Y%m%d_%H%M%S")
-    round_dir.mkdir(parents=True, exist_ok=True)
-    write_text_file(round_dir / "context_snapshot.json", json.dumps(context, ensure_ascii=False, indent=2, default=str))
-
-    analyst_results = run_research_panel(
-        "analyst",
-        DEFAULT_RESEARCH_ANALYST_MODELS,
-        context,
-        (
-            "Analyze the latest public-score trend, CV/public mismatch risk, data profile, "
-            "and project notes. Identify why recent attempts improved or failed. "
-            "Return concise findings and experiment priorities."
-        ),
-        api_key,
-        round_dir,
+    analyst_instruction = (
+        "Analyze the latest public-score trend, CV/public mismatch risk, data profile, "
+        "and project notes. Identify why recent attempts improved or failed. "
+        "Return concise findings and experiment priorities."
     )
-    hypothesis_context = {**context, "analyst_outputs": analyst_results}
-    hypothesis_results = run_research_panel(
-        "hypothesis",
-        DEFAULT_RESEARCH_HYPOTHESIS_MODELS,
-        hypothesis_context,
-        (
-            "Generate 5 to 8 concrete experiment hypotheses. Focus first on EDA-driven "
-            "preprocessing and feature engineering, then model/ensemble fit. For each "
-            "hypothesis include rationale, implementation sketch, validation method, "
-            "expected effect, runtime cost, and leakage risk."
-        ),
-        api_key,
-        round_dir,
+    hypothesis_instruction = (
+        "Generate 5 to 8 concrete experiment hypotheses. Focus first on EDA-driven "
+        "preprocessing and feature engineering, then model/ensemble fit. For each "
+        "hypothesis include rationale, implementation sketch, validation method, "
+        "expected effect, runtime cost, and leakage risk."
     )
-    critic_context = {**hypothesis_context, "hypothesis_outputs": hypothesis_results}
-    critic_results = run_research_panel(
-        "critic",
-        DEFAULT_RESEARCH_CRITIC_MODELS,
-        critic_context,
-        (
-            "Critique the proposed hypotheses aggressively. Reject leakage-prone, "
-            "public-overfit, duplicate, too-expensive, or weakly evidenced ideas. "
-            "Keep only robust experiments likely to improve private leaderboard."
-        ),
-        api_key,
-        round_dir,
+    critic_instruction = (
+        "Critique the proposed hypotheses aggressively. Reject leakage-prone, "
+        "public-overfit, duplicate, too-expensive, or weakly evidenced ideas. "
+        "Keep only robust experiments likely to improve private leaderboard."
     )
-    selector_context = {**critic_context, "critic_outputs": critic_results}
-    selector = openrouter_chat(
-        DEFAULT_RESEARCH_SELECTOR_MODEL,
-        research_messages(
-            "selector",
-            selector_context,
-            (
-                "Select the best 1 to 2 hypotheses for the next ReAct run. "
-                "Give a strict decision: accepted hypotheses, rejected hypotheses, "
-                "validation guardrails, and exact implementation priorities. "
-                "Do not request hyperparameter search unless the user explicitly enabled it."
-            ),
-        ),
-        api_key,
-        max_tokens=2600,
+    selector_instruction = (
+        "Select the best 1 to 2 hypotheses for the next ReAct run. "
+        "Give a strict decision: accepted hypotheses, rejected hypotheses, "
+        "validation guardrails, and exact implementation priorities. "
+        "Do not request hyperparameter search unless the user explicitly enabled it."
     )
-    write_text_file(round_dir / "selector_decision.md", selector)
-
-    warm_start = openrouter_chat(
-        DEFAULT_RESEARCH_WARM_START_MODEL,
-        research_messages(
-            "warm_start_builder",
-            {**selector_context, "selector_decision": selector},
-            (
-                "Write the final warm-start instruction for Auto_Dacon run-react-project. "
-                "It must be directly actionable for a coding agent. Include competition "
-                "goal, current best public score if known, selected hypotheses, validation "
-                "protocol, leakage warnings, output requirement, and a fallback plan that "
-                "still writes a valid submission.csv. Keep it focused."
-            ),
-        ),
-        api_key,
-        max_tokens=3000,
+    warm_start_instruction = (
+        "Write the final warm-start instruction for Auto_Dacon run-react-project. "
+        "It must be directly actionable for a coding agent. Include competition "
+        "goal, current best public score if known, selected hypotheses, validation "
+        "protocol, leakage warnings, output requirement, and a fallback plan that "
+        "still writes a valid submission.csv. Keep it focused."
     )
-    warm_start_path = round_dir / "warm_start_for_react.txt"
-    write_text_file(warm_start_path, warm_start)
-    write_text_file(project_dir / "notes" / "latest_research_warm_start.txt", warm_start)
+    round_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    panel_nodes = [
+        NodeSpec(role=NodeRole.ANALYST, model=model, instruction=analyst_instruction)
+        for model in DEFAULT_RESEARCH_ANALYST_MODELS
+    ]
+    panel_nodes.extend(
+        NodeSpec(role=NodeRole.HYPOTHESIS, model=model, instruction=hypothesis_instruction)
+        for model in DEFAULT_RESEARCH_HYPOTHESIS_MODELS
+    )
+    panel_nodes.extend(
+        NodeSpec(role=NodeRole.CRITIC, model=model, instruction=critic_instruction)
+        for model in DEFAULT_RESEARCH_CRITIC_MODELS
+    )
+    result = ResearchRuntime(OpenRouterClient(api_key=api_key)).run_round(
+        project_dir=project_dir,
+        round_id=round_id,
+        panel_nodes=panel_nodes,
+        selector_node=NodeSpec(
+            role=NodeRole.SELECTOR,
+            model=DEFAULT_RESEARCH_SELECTOR_MODEL,
+            instruction=selector_instruction,
+            max_tokens=2600,
+        ),
+        warm_start_node=NodeSpec(
+            role=NodeRole.WARM_START_BUILDER,
+            model=DEFAULT_RESEARCH_WARM_START_MODEL,
+            instruction=warm_start_instruction,
+            max_tokens=3000,
+        ),
+        metadata=metadata,
+    )
+    warm_start_path = project_dir / next(artifact.path for artifact in result.artifacts if artifact.kind == "warm_start")
     print(f"Research warm-start written: {warm_start_path}")
     return warm_start_path
 
