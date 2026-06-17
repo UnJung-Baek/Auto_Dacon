@@ -717,15 +717,13 @@ class StoreTabTrainInMemory(Command):
 class SendSubmissionPlanDSAction(PlanDSAction):
     name: str = "send_submission"
     stage_name: DataScienceStageNames = DataScienceStageNames.SEND_SUBMISSION
-    description: str = "Send selected submission file"
+    description: str = "Record selected local submission file"
 
     def get_hyps(self, memory: Memory) -> dict[DSActionHypKeys, Any]:
         return {DSActionHypKeys.SUBMISSION_NAME: memory.retrieve({MemKey.SELECTED_SUBMISSION: 1.0})}
 
 
 class SendSubmission(SequentialFlow):
-    """Ask the LLM to choose which submission file to submit and then acts to submit to kaggle."""
-
     def __init__(
             self,
             parse_func_id: str,
@@ -733,7 +731,7 @@ class SendSubmission(SequentialFlow):
     ):
         select_cmd = SelectSubmission(
             name="select_submission",
-            description="Select the submission to send out of a list of already created submissions",
+            description="Select the local submission to record from already created submissions",
             response_parser_id=parse_func_id,
             required_prompt_templates={"ask_template": select_submission_template},
         )
@@ -742,7 +740,7 @@ class SendSubmission(SequentialFlow):
         super().__init__(
             name=DataScienceStageNames.SEND_SUBMISSION.value,
             sequence=sequence,
-            description="Select and send submission",
+            description="Select and record local submission",
         )
 
 
@@ -1352,15 +1350,13 @@ class SelectBlendSubmissions(Command):
 class SendBlendSubmissionPlanDSAction(PlanDSAction):
     name: str = "send_blend_submission"
     stage_name: DataScienceStageNames = DataScienceStageNames.BLEND_SUBMISSIONS
-    description: str = "Send selected submissions files"
+    description: str = "Record selected local blend submission files"
 
     def get_hyps(self, memory: Memory) -> dict[DSActionHypKeys, Any]:
         return {DSActionHypKeys.SUBMISSIONS_LIST: memory.retrieve({MemKey.SELECTED_SUBMISSIONS_BLEND: 1.0})}
 
 
 class SendBlendSubmissions(SequentialFlow):
-    """Ask the LLM to choose which submission file to submit and then acts to submit to kaggle."""
-
     def __init__(
             self,
             parse_func_id: str,
@@ -1368,7 +1364,7 @@ class SendBlendSubmissions(SequentialFlow):
     ):
         select_cmd = SelectBlendSubmissions(
             name="select_submission",
-            description="Select the submission to send out of a list of already created submissions",
+            description="Select local submissions to blend and record from already created submissions",
             parse_func_id=parse_func_id,
             required_prompt_templates={"ask_template": select_submission_template},
         )
@@ -1377,14 +1373,14 @@ class SendBlendSubmissions(SequentialFlow):
         super().__init__(
             name=DataScienceStageNames.BLEND_SUBMISSIONS.value,
             sequence=sequence,
-            description="Select and send submissions for blend",
+            description="Select and record local submissions for blend",
         )
 
 
 class SendBagSubmissionPlanDSAction(PlanDSAction):
     name: str = "send_bag_submission"
     stage_name: DataScienceStageNames = DataScienceStageNames.BAG_SUBMISSIONS
-    description: str = "Send selected submissions files"
+    description: str = "Record selected local bag submission files"
 
     def get_hyps(self, memory: Memory) -> dict[DSActionHypKeys, Any]:
         return {
@@ -1395,8 +1391,6 @@ class SendBagSubmissionPlanDSAction(PlanDSAction):
 
 
 class SendBagSubmissions(SequentialFlow):
-    """Ask the LLM to choose which submission file to submit and then acts to submit to kaggle."""
-
     def __init__(
             self,
             parse_func_id: str,
@@ -1414,7 +1408,7 @@ class SendBagSubmissions(SequentialFlow):
     ):
         select_cmd = SelectBagSubmissions(
             name="select_submission",
-            description="Select the submission to send out of a list of already created submissions",
+            description="Select local submissions to bag and record from already created submissions",
             parse_func_id=parse_func_id,
             required_prompt_templates={"ask_template": select_submission_template},
         )
@@ -1435,7 +1429,7 @@ class SendBagSubmissions(SequentialFlow):
         super().__init__(
             name=DataScienceStageNames.BAG_SUBMISSIONS.value,
             sequence=sequence,
-            description="Select and send submissions for bag",
+            description="Select and record local submissions for bag",
         )
 
 

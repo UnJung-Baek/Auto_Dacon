@@ -1111,14 +1111,10 @@ class DataScienceEnv:
             self.obs[DSObsKey.CURRENT_SUBMISSION] = None
             submission.save()
 
-            # The blend is run after all the other submissions so we directly submit it to kaggle
-            obs = self.submit_to_kaggle(
+            self.record_local_submission(
                 submission_file_path=os.path.join(submission.path, FileMap.BLEND_SUBMISSION_FILE.value),
-                submission_name=submission.name
+                submission_name=submission.name,
             )
-            self.obs.update(obs)
-            if obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY]:
-                self.obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY].append(submission.name)
             self.done = True
             return
 
@@ -1136,17 +1132,10 @@ class DataScienceEnv:
                     FileMap.SUBMISSION_ALT_FILE.value
                 )
             ]
-            submission_obs = [
-                self.submit_to_kaggle(p, submission_name) for p in submission_file_paths if os.path.exists(p)
-            ]
-            if not submission_obs:
+            existing_submission_paths = [p for p in submission_file_paths if os.path.exists(p)]
+            if not existing_submission_paths:
                 raise FileNotFoundError(f"Neither submission file is present: {submission_file_paths}")
-
-            successful_submissions = [obs for obs in submission_obs if obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY]]
-            if not successful_submissions:
-                self.obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY] = False
-            else:
-                self.obs[DSObsKey.SENT_SUBMISSION_NAMES].append(submission_name)
+            self.record_local_submission(existing_submission_paths[0], submission_name)
 
             self.done = True
             return
@@ -1154,55 +1143,20 @@ class DataScienceEnv:
         else:
             raise RuntimeError(action)
 
-    def submit_to_kaggle(self, submission_file_path: str, submission_name: str, phase="public") -> dict[DSObsKey, ...]:
-        """Submit specified file to kaggle via the API
-        also attempts to join the competition via selenium"""
-        from requests.exceptions import HTTPError
-        from kaggle.api.kaggle_api_extended import KaggleApi
+    def record_local_submission(self, submission_file_path: str, submission_name: str) -> dict[DSObsKey, ...]:
+        if not os.path.exists(submission_file_path):
+            raise FileNotFoundError(submission_file_path)
 
-        kaggle_api = KaggleApi()
-        kaggle_api.authenticate()
-        assert phase in ("public", "private")
-        assert phase == "public", "phase=private does not work unless the request.get has a kaggle login cookie"
-
-        obs = {}
-        try:
-            try:
-                # This can get stuck when the proxy blocks it -- set KAGGLE_PROXY
-                submit_result = kaggle_api.competition_submit(
-                    file_name=submission_file_path,
-                    message=submission_name,
-                    competition=self.task_id
-                )
-            except HTTPError as e:
-                body = e.response.json()
-                accept_rules_message = "You must accept the rules for this competition to perform this action."
-                if body["code"] == 403 and body["message"] == accept_rules_message:
-                    # This indicates the competition has not been joined, so try to join it with selenium
-                    from agent.tools.fetch_tool import FetchTool
-                    fetch_tool = FetchTool(
-                        task_url=f"https://www.kaggle.com/competitions/{self.task_id}",
-                        user_details="./third_party/data_preprocessing/kaggle_login_details.json",
-                        # Hopefully these are irrelevant for joining
-                        workspace_path=".",
-                        raw_data_dir=".",
-                        is_local_task=self.is_local_task
-                    )
-                    fetch_tool.join_competition(fetch_tool.task_url)
-
-                    submit_result = kaggle_api.competition_submit(
-                        file_name=submission_file_path,
-                        message=submission_name,
-                        competition=self.task_id
-                    )
-                else:
-                    raise
-
-            obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY] = True
-        except:
-            obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY] = False
-
-        return obs
+        self.obs[DSObsKey.SUBMISSION_SENT_SUCCESSFULLY] = True
+        sent_names = self.obs.setdefault(DSObsKey.SENT_SUBMISSION_NAMES, [])
+        if submission_name not in sent_names:
+            sent_names.append(submission_name)
+        print(
+            f"Auto_Dacon local-only submission recorded: {submission_name} -> {submission_file_path}. "
+            "No Kaggle or DACON API submission was sent.",
+            flush=True,
+        )
+        return {DSObsKey.SUBMISSION_SENT_SUCCESSFULLY: True}
 
     def load_current_submission(self) -> DataScienceSubmissionCard:
         path = DataScienceSubmissionCard.get_path(
